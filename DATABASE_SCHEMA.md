@@ -576,8 +576,68 @@ As implemented in Milestone 3:
   `payments.verify`; from anyone else the payment is stored unverified.
 - **Payments taken with a sale** get a server-made idempotency key; the sale's
   own key is what prevents a duplicate.
-- Recording a payment after the sale (due collection), customer advance balance
-  and sale returns are not built yet.
+- Recording a payment after the sale (due collection) is not built yet.
+
+**Isolation level.** The application's connections run at READ COMMITTED, not
+MySQL's default REPEATABLE READ. Under REPEATABLE READ a transaction's plain
+reads all see the database as of its first read, which happens before it has
+waited for its row locks; a transaction that queued behind another would lock
+the sale and still count returns or payments from before the other committed.
+A test (five returns racing for the last unit) caught exactly this. With READ
+COMMITTED, "take the lock, then read" always reads committed truth.
+
+**Returns and refunds (migration 003).** New columns `sales.returned_amount`,
+`sales.refunded_amount`, `sale_returns.return_amount`,
+`sale_returns.idempotency_key`. The money checks on `sales` become:
+
+```
+returned  = Σ sale_returns.return_amount     value of goods that came back
+refunded  = Σ sale_returns.total_refund      the part given back to the customer
+paid      = verified payments − refunded
+due       = total − returned − paid
+
+CHECK (due_amount = total_amount − returned_amount − paid_amount)
+CHECK (paid_amount ≥ 0 AND paid_amount ≤ total_amount − returned_amount)
+CHECK (returned_amount ≤ total_amount AND refunded_amount ≤ returned_amount)
+```
+
+- The value of a returned line is its price less the sale's discount in
+  proportion; rounding can never return more than the sale was worth.
+- That value first cancels what is still due on the sale. Only the rest is
+  refunded, in cash or as advance credit (`refund_method`).
+- Only products can be returned, never more than was sold less what already
+  came back. Stock returns with a `sale_return` ledger row.
+- Refused while a payment on the sale is unverified. A sale with a return
+  cannot be voided, and a payment cannot be removed if that would leave less
+  paid than was already refunded. A return itself cannot be voided.
+
+**Customer advance balance (migration 003).** `customer_advance_movements` is
+the ledger behind `customers.advance_balance`, as `inventory_movements` is for
+stock: signed `amount`, `balance_after`, and one function that writes both.
+
+```
+customer_advance_movements
+  id, customer_id FK, movement_type ENUM('deposit','sale_payment','payment_void','return_credit'),
+  amount DECIMAL(12,2) signed, balance_after DECIMAL(12,2) CHECK ≥ 0,
+  method (deposits), reference, receipt_no UQ, payment_id FK, sale_return_id FK,
+  note, idempotency_key UQ, created_by FK, created_at
+```
+
+- A deposit joins the balance at once, so it must be certain money: cash, or a
+  transfer recorded by someone holding `payments.verify`.
+- Paying a sale with method `customer_advance` is verified by nature and is
+  refused, with the whole sale, if the balance does not cover it (conditional
+  update, so two tills cannot spend the same money).
+- Voiding such a payment, or the sale it paid, puts the money back.
+- Money tendered above the sale total is not turned into an advance
+  automatically; a deposit is always a deliberate entry.
+
+**Customer portal reads.** Bills are read through one function with an
+`audience` argument; for a customer it withholds cost, internal notes, void
+reasons, staff names on payments, internal ids and the QR token, and hides
+voided payments. Every portal query is filtered by the customer id from the
+session. `GET /portal/view/:token` returns the single bill whose 128-bit
+`qr_token` matches, without a session, and nothing else.
 
 The `CHECK` constraints on `sales` (`paid_amount ≤ total_amount`,
 `due_amount = total_amount − paid_amount`, no due without a customer) and on

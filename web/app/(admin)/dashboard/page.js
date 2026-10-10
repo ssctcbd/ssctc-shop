@@ -7,8 +7,7 @@ import { useFetch } from '@/lib/useFetch';
 const MILESTONES = [
   ['Foundation: login, roles, database', 'Ready'],
   ['Products, services, inventory, suppliers, purchases', 'Ready'],
-  ['Customers, POS, sales and invoices', 'Ready'],
-  ['Sale returns, invoice QR code, portal bills', 'Milestone 3, part 2'],
+  ['Customers, POS, sales, returns, invoices with QR, customer portal', 'Ready'],
   ['Payments, dues, expenses, cash closing', 'Milestone 4'],
   ['Dashboard figures and reports', 'Milestone 5'],
 ];

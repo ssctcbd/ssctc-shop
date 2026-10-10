@@ -7,6 +7,8 @@ const { writeAudit } = require('../../lib/audit');
 const { applyStockMovement } = require('../../lib/stock');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { recalculateSale, recalculateCustomer } = require('../../lib/ledger');
+const { applyAdvanceMovement } = require('../../lib/advance');
+const { loadSale } = require('./detail');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, documentDate, today } = require('../../lib/dates');
 const { conflict, notFound, forbidden, badRequest } = require('../../lib/errors');
@@ -15,7 +17,8 @@ const { z, id, money, positiveMoney, quantity, optionalText, requiredText, flag,
 const router = express.Router();
 
 const fieldError = (field, message) => badRequest('Please check the highlighted fields.', { fields: { [field]: message } });
-const METHODS = ['cash', 'bkash', 'nagad', 'bank_transfer', 'other'];
+// 'customer_advance' spends money the customer deposited earlier.
+const METHODS = ['cash', 'bkash', 'nagad', 'bank_transfer', 'customer_advance', 'other'];
 
 const itemSchema = z.discriminatedUnion('type', [
   z.strictObject({
@@ -89,6 +92,7 @@ const summary = (row) => ({
   subtotal: row.subtotal,
   discountAmount: row.discount_amount,
   totalAmount: row.total_amount,
+  returnedAmount: row.returned_amount,
   paidAmount: row.paid_amount,
   unverifiedAmount: row.unverified_amount,
   dueAmount: row.due_amount,
@@ -142,50 +146,10 @@ router.get('/sales', staffWith('sales.view'), validateQuery(listSchema), async (
 });
 
 router.get('/sales/:id', staffWith('sales.view'), idParam, async (req, res) => {
-  const rows = await query(`${SALE_SELECT} WHERE s.id = ?`, [req.id]);
-  if (!rows[0]) throw notFound('Sale not found.');
-  const items = await query('SELECT * FROM sale_items WHERE sale_id = ? ORDER BY id', [req.id]);
-  const payments = await query(
-    `SELECT p.id, p.receipt_no, p.payment_date, p.method, p.amount AS payment_amount, a.amount, p.reference, p.is_verified, p.status, p.void_reason, u.name AS user_name
-       FROM payment_allocations a JOIN payments p ON p.id = a.payment_id JOIN users u ON u.id = p.created_by
-      WHERE a.sale_id = ? ORDER BY p.id`,
-    [req.id],
-  );
   // Cost shows the shop's margin: only for users who see financial reports.
-  const withCost = can(req, 'reports.financial');
-  res.json({
-    sale: {
-      ...summary(rows[0]),
-      items: items.map((i) => ({
-        id: i.id,
-        type: i.item_type,
-        productId: i.product_id,
-        serviceId: i.service_id,
-        name: i.name_snapshot,
-        sku: i.sku_snapshot,
-        unit: i.unit_snapshot,
-        unitPrice: i.unit_price,
-        quantity: i.quantity,
-        warranty: i.warranty,
-        serialNo: i.serial_no,
-        lineTotal: i.line_total,
-        ...(withCost ? { costPrice: i.cost_price_snapshot } : {}),
-      })),
-      payments: payments.map((p) => ({
-        id: p.id,
-        receiptNo: p.receipt_no,
-        paymentDate: p.payment_date,
-        method: p.method,
-        amount: p.amount, // the part of the payment applied to this sale
-        paymentAmount: p.payment_amount,
-        reference: p.reference,
-        isVerified: Boolean(p.is_verified),
-        status: p.status,
-        voidReason: p.void_reason,
-        recordedByName: p.user_name,
-      })),
-    },
-  });
+  const sale = await loadSale('s.id = ?', [req.id], { audience: 'staff', withCost: can(req, 'reports.financial') });
+  if (!sale) throw notFound('Sale not found.');
+  res.json({ sale });
 });
 
 /**
@@ -278,9 +242,17 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
     if (total > 999_999_999_999) throw badRequest('The sale total is too large.');
 
     const mayVerify = can(req, 'payments.verify');
-    const payments = b.payments.map((p) => ({ ...p, paisa: toPaisa(p.amount), isVerified: p.method === 'cash' || (p.verified && mayVerify) }));
+    // Cash is in hand, and advance is money the shop already holds: both are
+    // verified by nature. Anything else needs someone allowed to verify.
+    const payments = b.payments.map((p) => ({
+      ...p,
+      reference: p.method === 'customer_advance' ? null : p.reference,
+      paisa: toPaisa(p.amount),
+      isVerified: p.method === 'cash' || p.method === 'customer_advance' || (p.verified && mayVerify),
+    }));
+    if (!customer && payments.some((p) => p.method === 'customer_advance')) throw fieldError('customerId', 'Paying from an advance balance needs a saved customer.');
     const tendered = payments.reduce((sum, p) => sum + p.paisa, 0);
-    if (tendered > total) throw fieldError('payments', `The payments (${fromPaisa(tendered)}) are more than the sale total (${fromPaisa(total)}). Customer advances are not supported yet.`);
+    if (tendered > total) throw fieldError('payments', `The payments (${fromPaisa(tendered)}) are more than the sale total (${fromPaisa(total)}). Extra money can be kept as an advance from the customer's page.`);
     const paid = payments.filter((p) => p.isVerified).reduce((sum, p) => sum + p.paisa, 0);
     const due = total - paid;
 
@@ -344,6 +316,10 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
         [receiptNo, customer ? customer.id : null, when, p.method, p.amount, p.reference, Number(p.isVerified), p.isVerified ? req.user.id : null, p.isVerified ? new Date() : null, crypto.randomUUID(), req.user.id],
       );
       await conn.execute('INSERT INTO payment_allocations (payment_id, sale_id, amount) VALUES (?, ?, ?)', [payment.insertId, saleId, p.amount]);
+      // Refused, and the whole sale rolled back, if the balance does not cover it.
+      if (p.method === 'customer_advance') {
+        await applyAdvanceMovement(conn, { customerId: customer.id, deltaPaisa: -p.paisa, movementType: 'sale_payment', paymentId: payment.insertId, note: invoiceNo, userId: req.user.id });
+      }
     }
 
     await recalculateSale(conn, saleId);
@@ -384,9 +360,10 @@ router.post('/sales/:id/void', staffWith('sales.void'), idParam, validateBody(vo
     const [rows] = await conn.execute('SELECT * FROM sales WHERE id = ? FOR UPDATE', [req.id]);
     const sale = rows[0];
     if (sale.status !== 'completed') throw conflict('This sale has already been voided.');
+    if (toPaisa(sale.returned_amount) > 0) throw conflict(`${sale.invoice_no} has a return recorded against it, so it cannot be voided.`);
 
     const [payments] = await conn.execute(
-      `SELECT p.id, p.receipt_no, p.amount, (SELECT COUNT(*) FROM payment_allocations x WHERE x.payment_id = p.id) AS sales_covered
+      `SELECT p.id, p.receipt_no, p.amount, p.method, (SELECT COUNT(*) FROM payment_allocations x WHERE x.payment_id = p.id) AS sales_covered
          FROM payment_allocations a JOIN payments p ON p.id = a.payment_id
         WHERE a.sale_id = ? AND p.status = 'active' ORDER BY p.id FOR UPDATE`,
       [req.id],
@@ -413,6 +390,10 @@ router.post('/sales/:id/void', staffWith('sales.void'), idParam, validateBody(vo
 
     for (const p of payments) {
       await conn.execute("UPDATE payments SET status = 'void', void_reason = ?, voided_by = ?, voided_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'active'", [`Sale ${sale.invoice_no} voided: ${reason}`.slice(0, 255), req.user.id, p.id]);
+      // Advance spent on this sale goes back to the customer's balance.
+      if (p.method === 'customer_advance') {
+        await applyAdvanceMovement(conn, { customerId, deltaPaisa: toPaisa(p.amount), movementType: 'payment_void', paymentId: p.id, note: `Sale ${sale.invoice_no} voided`, userId: req.user.id });
+      }
       await writeAudit({ conn, actorUserId: req.user.id, action: 'payment.void', entityType: 'payment', entityId: p.id, oldValues: { status: 'active', amount: p.amount }, newValues: { status: 'void', withSale: sale.invoice_no }, ip: req.ip });
     }
 
@@ -432,6 +413,146 @@ router.post('/sales/:id/void', staffWith('sales.void'), idParam, validateBody(vo
 
   const rows = await query(`${SALE_SELECT} WHERE s.id = ?`, [req.id]);
   res.json({ sale: summary(rows[0]) });
+});
+
+// --- returns ----------------------------------------------------------------
+
+const returnSchema = z.strictObject({
+  idempotencyKey: z.string().uuid('Not a valid key.'),
+  reason: requiredText(3, 255),
+  // How any money owed back to the customer is given: in cash, or added to
+  // their advance balance to spend later.
+  refundMethod: z.enum(['cash', 'advance_credit']).default('cash'),
+  items: z.array(z.strictObject({ saleItemId: id, quantity })).min(1, 'Choose at least one item to return.').max(200),
+});
+
+async function savedReturn(idempotencyKey) {
+  const rows = await query('SELECT id, return_no, return_amount, total_refund, refund_method FROM sale_returns WHERE idempotency_key = ?', [idempotencyKey]);
+  const r = rows[0];
+  return r ? { id: r.id, returnNo: r.return_no, returnAmount: r.return_amount, refundAmount: r.total_refund, refundMethod: r.refund_method } : null;
+}
+
+/**
+ * Take products back from a completed sale (DATABASE_SCHEMA.md §5.7).
+ *
+ * The value of what comes back is the line price, less the sale's discount in
+ * proportion. That value first cancels whatever is still due on the sale; only
+ * the rest is given back, in cash or as advance credit:
+ *
+ *   value returned 450, sale still owes 250  →  due falls to 0, refund 200
+ *   value returned 450, sale fully paid      →  refund 450
+ *   value returned 450, sale still owes 900  →  due falls to 450, no refund
+ *
+ * One transaction: lock customer → lock sale → check quantities against what
+ * was sold less what was already returned → take return number → insert the
+ * return and its lines → put the products back in stock → credit the advance
+ * balance if chosen → recalculate the sale and the customer → audit.
+ */
+router.post('/sales/:id/returns', staffWith('sales.return'), idParam, validateBody(returnSchema), async (req, res) => {
+  const b = req.body;
+
+  const existing = await savedReturn(b.idempotencyKey);
+  if (existing) return res.status(200).json({ return: existing, duplicate: true });
+
+  const seen = new Set();
+  for (const [index, item] of b.items.entries()) {
+    if (seen.has(item.saleItemId)) throw fieldError(`items.${index}.saleItemId`, 'This line is listed twice.');
+    seen.add(item.saleItemId);
+  }
+
+  let result;
+  try {
+    result = await transaction(createReturn);
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY' && String(err.message).includes('uq_sale_returns_idempotency')) {
+      const stored = await savedReturn(b.idempotencyKey);
+      if (stored) return res.status(200).json({ return: stored, duplicate: true });
+    }
+    throw err;
+  }
+  res.status(201).json({ return: result });
+
+  async function createReturn(conn) {
+    const [found] = await conn.execute('SELECT customer_id FROM sales WHERE id = ?', [req.id]);
+    if (!found[0]) throw notFound('Sale not found.');
+    const customerId = found[0].customer_id;
+    if (customerId) await conn.execute('SELECT id FROM customers WHERE id = ? FOR UPDATE', [customerId]);
+
+    const [rows] = await conn.execute('SELECT * FROM sales WHERE id = ? FOR UPDATE', [req.id]);
+    const sale = rows[0];
+    if (sale.status !== 'completed') throw conflict('A voided sale cannot have a return.');
+    if (sale.sale_type !== 'sale') throw conflict('An opening due has no items to return.');
+    // An unverified payment makes "how much is still due" uncertain. Settle it first.
+    if (toPaisa(sale.unverified_amount) > 0) throw conflict(`${sale.invoice_no} has a payment awaiting verification. Verify or void it before recording a return.`);
+
+    const [soldRows] = await conn.execute(
+      `SELECT i.id, i.item_type, i.product_id, i.name_snapshot, i.unit_price, i.cost_price_snapshot, i.quantity,
+              COALESCE((SELECT SUM(ri.quantity) FROM sale_return_items ri WHERE ri.sale_item_id = i.id), 0) AS returned
+         FROM sale_items i WHERE i.sale_id = ?`,
+      [req.id],
+    );
+    const sold = new Map(soldRows.map((i) => [i.id, i]));
+    const subtotal = toPaisa(sale.subtotal);
+    const total = toPaisa(sale.total_amount);
+
+    const lines = b.items.map((item, index) => {
+      const line = sold.get(item.saleItemId);
+      if (!line) throw fieldError(`items.${index}.saleItemId`, 'This line is not part of the sale.');
+      if (line.item_type !== 'product') throw fieldError(`items.${index}.saleItemId`, `"${line.name_snapshot}" is a service and cannot be returned.`);
+      const left = line.quantity - Number(line.returned);
+      if (item.quantity > left) throw fieldError(`items.${index}.quantity`, left === 0 ? `"${line.name_snapshot}" has already been returned in full.` : `Only ${left} of "${line.name_snapshot}" can still be returned.`);
+      // Line price, less this line's share of the sale-level discount.
+      const valuePaisa = subtotal === 0 ? 0 : Math.round((toPaisa(line.unit_price) * item.quantity * total) / subtotal);
+      return { saleItemId: line.id, productId: line.product_id, name: line.name_snapshot, unitPrice: line.unit_price, cost: line.cost_price_snapshot, quantity: item.quantity, valuePaisa };
+    });
+
+    // Rounding must never return more than the sale was worth.
+    const room = total - toPaisa(sale.returned_amount);
+    let value = lines.reduce((sum, l) => sum + l.valuePaisa, 0);
+    if (value > room) {
+      lines[lines.length - 1].valuePaisa -= value - room;
+      value = room;
+    }
+
+    const dueNow = toPaisa(sale.due_amount);
+    const offset = Math.min(value, dueNow); // cancels what is still owed
+    const refund = value - offset; // goes back to the customer
+    if (refund > 0 && b.refundMethod === 'advance_credit' && !customerId) throw fieldError('refundMethod', 'A walk-in sale can only be refunded in cash.');
+
+    const returnNo = await nextDocumentNumber(conn, 'return');
+    const [inserted] = await conn.execute(
+      `INSERT INTO sale_returns (return_no, sale_id, customer_id, return_date, return_amount, total_refund, refund_method, reason, idempotency_key, created_by)
+       VALUES (?, ?, ?, UTC_TIMESTAMP(), ?, ?, ?, ?, ?, ?)`,
+      [returnNo, req.id, customerId, fromPaisa(value), fromPaisa(refund), b.refundMethod, b.reason, b.idempotencyKey, req.user.id],
+    );
+    const returnId = inserted.insertId;
+
+    const [tracked] = await conn.query('SELECT id FROM products WHERE id IN (?) AND track_stock = 1', [lines.map((l) => l.productId)]);
+    const trackedIds = new Set(tracked.map((p) => p.id));
+    for (const l of [...lines].sort((a, z) => a.productId - z.productId)) {
+      await conn.execute('INSERT INTO sale_return_items (return_id, sale_item_id, product_id, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)', [returnId, l.saleItemId, l.productId, l.quantity, l.unitPrice, fromPaisa(l.valuePaisa)]);
+      if (trackedIds.has(l.productId)) {
+        await applyStockMovement(conn, { productId: l.productId, delta: l.quantity, movementType: 'sale_return', unitCost: l.cost, referenceType: 'return', referenceId: returnId, note: `${returnNo} · ${sale.invoice_no}`, userId: req.user.id });
+      }
+    }
+
+    if (refund > 0 && b.refundMethod === 'advance_credit') {
+      await applyAdvanceMovement(conn, { customerId, deltaPaisa: refund, movementType: 'return_credit', saleReturnId: returnId, note: `${returnNo} · ${sale.invoice_no}`, userId: req.user.id });
+    }
+
+    await recalculateSale(conn, req.id);
+    await recalculateCustomer(conn, customerId);
+    await writeAudit({
+      conn,
+      actorUserId: req.user.id,
+      action: 'sale.return',
+      entityType: 'sale',
+      entityId: req.id,
+      newValues: { returnNo, invoiceNo: sale.invoice_no, value: fromPaisa(value), dueReduced: fromPaisa(offset), refund: fromPaisa(refund), refundMethod: b.refundMethod, reason: b.reason, lines: lines.map((l) => ({ name: l.name, quantity: l.quantity })) },
+      ip: req.ip,
+    });
+    return { id: returnId, returnNo, returnAmount: fromPaisa(value), dueReduced: fromPaisa(offset), refundAmount: fromPaisa(refund), refundMethod: b.refundMethod };
+  }
 });
 
 module.exports = router;

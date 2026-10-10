@@ -8,7 +8,7 @@ import { api } from './api';
  * Returns { data, error, loading, reload }. Previous data stays visible while
  * a reload is in flight, so tables do not flicker.
  */
-export function useFetch(path) {
+export function useFetch(path, { loginPath = '/login/' } = {}) {
   const [state, setState] = useState({ data: null, error: null, loading: Boolean(path) });
   const [tick, setTick] = useState(0);
 
@@ -22,7 +22,7 @@ export function useFetch(path) {
       .catch((error) => {
         if (cancelled) return;
         // Session ended while the screen was open: back to the login page.
-        if (error.status === 401) window.location.assign('/login/');
+        if (error.status === 401) window.location.assign(loginPath);
         // The API refuses everything until a password set by the Owner is replaced.
         else if (error.code === 'password_change_required') window.location.assign('/account/');
         else setState((s) => ({ ...s, error, loading: false }));
@@ -30,6 +30,7 @@ export function useFetch(path) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, tick]);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);

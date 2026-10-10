@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
@@ -10,7 +10,7 @@ import { formatDateTime, formatMoney } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { toQuery, useFetch, useForm } from '@/lib/useFetch';
 
-const METHODS = { cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', bank_transfer: 'Bank transfer', other: 'Other' };
+const METHODS = { cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', bank_transfer: 'Bank transfer', customer_advance: 'Advance balance', other: 'Other' };
 const PAY_STATUS = { paid: ['Paid', 'badge-ok'], partial: ['Part paid', 'badge-warn'], unpaid: ['Unpaid', 'badge-danger'] };
 
 function SaleBadge({ sale }) {
@@ -57,10 +57,87 @@ function VoidSaleForm({ sale, onDone, onCancel }) {
   );
 }
 
+function ReturnForm({ sale, onDone, onCancel }) {
+  // One key per form, so a repeated save records the return once.
+  const idempotencyKey = useRef(null);
+  const returnable = sale.items.filter((i) => i.type === 'product' && i.quantity > i.returnedQuantity);
+  const [quantities, setQuantities] = useState({});
+  const [result, setResult] = useState(null);
+  const form = useForm({ reason: '', refundMethod: 'cash' }, async (v) => {
+    const items = returnable.filter((i) => Number(quantities[i.id]) > 0).map((i) => ({ saleItemId: i.id, quantity: quantities[i.id] }));
+    if (items.length === 0) throw Object.assign(new Error('Enter how many of at least one item are coming back.'), { fields: {} });
+    idempotencyKey.current ||= crypto.randomUUID();
+    const res = await api.post(`/sales/${sale.id}/returns`, { idempotencyKey: idempotencyKey.current, reason: v.reason, refundMethod: v.refundMethod, items });
+    setResult(res.return);
+  });
+  // Shown before saving so the cashier knows what to expect; the server decides the real figures.
+  const value = returnable.reduce((sum, i) => sum + (Number(sale.subtotal) > 0 ? (Number(i.unitPrice) * (Number(quantities[i.id]) || 0) * Number(sale.totalAmount)) / Number(sale.subtotal) : 0), 0);
+  const refund = Math.max(0, value - Number(sale.dueAmount));
+  const lineError = Object.entries(form.fields).find(([path]) => path.startsWith('items.'));
+
+  if (result) {
+    return (
+      <div className="inline-box">
+        <Notice kind="success">
+          Return {result.returnNo} saved. Goods worth {formatMoney(result.returnAmount)} are back in stock.
+          {Number(result.dueReduced) > 0 && ` ${formatMoney(result.dueReduced)} was taken off the due.`}
+          {Number(result.refundAmount) > 0 && (result.refundMethod === 'cash' ? ` Give the customer ${formatMoney(result.refundAmount)} in cash.` : ` ${formatMoney(result.refundAmount)} was added to the customer's advance balance.`)}
+        </Notice>
+        <div className="form-actions">
+          <button type="button" className="btn btn-primary" onClick={onDone}>
+            Done
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={form.onSubmit} noValidate className="inline-box">
+      <h2 className="section-title" style={{ marginTop: 0 }}>
+        Return items from {sale.invoiceNo}
+      </h2>
+      <Notice>{lineError ? lineError[1] : form.error !== 'Please check the highlighted fields.' && form.error}</Notice>
+      {returnable.map((i) => (
+        <div className="return-line" key={i.id}>
+          <div>
+            <strong>{i.name}</strong>
+            <span className="sub">
+              Sold {i.quantity}
+              {i.returnedQuantity > 0 ? `, ${i.returnedQuantity} already returned` : ''} · {formatMoney(i.unitPrice)} each
+            </span>
+          </div>
+          <Field label="Coming back" type="number" min={0} max={i.quantity - i.returnedQuantity} step={1} placeholder="0" value={quantities[i.id] ?? ''} onChange={(e) => setQuantities((q) => ({ ...q, [i.id]: e.target.value }))} />
+        </div>
+      ))}
+      <Field as="textarea" label="Reason" required maxLength={255} value={form.values.reason} error={form.fields.reason && 'Write the reason (at least 3 characters).'} onChange={form.set('reason')} />
+      <Field as="select" label="If money is owed back to the customer" value={form.values.refundMethod} error={form.fields.refundMethod} onChange={form.set('refundMethod')} hint="The returned value first cancels anything still due on this sale. Only the rest is given back.">
+        <option value="cash">Give it back in cash</option>
+        {sale.customerId && <option value="advance_credit">Add it to the customer&apos;s advance balance</option>}
+      </Field>
+      {value > 0 && (
+        <p className="field-hint">
+          About {formatMoney(value)} of goods. {Number(sale.dueAmount) > 0 && `${formatMoney(Math.min(value, Number(sale.dueAmount)))} comes off the due. `}
+          {refund > 0 ? `${formatMoney(refund)} goes back to the customer.` : 'Nothing to refund.'}
+        </p>
+      )}
+      <div className="form-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={form.busy}>
+          {form.busy ? 'Saving…' : 'Save return'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function SaleDetail({ id, onClose, onChanged }) {
   const can = useCan();
   const { data, error, reload } = useFetch(`/sales/${id}`);
   const [voiding, setVoiding] = useState(false);
+  const [returning, setReturning] = useState(false);
   const [actionError, setActionError] = useState('');
   const s = data?.sale;
 
@@ -154,8 +231,14 @@ function SaleDetail({ id, onClose, onChanged }) {
               <span>Total</span>
               <span>{formatMoney(s.totalAmount)}</span>
             </div>
+            {Number(s.returnedAmount) > 0 && (
+              <div>
+                <span>Returned goods</span>
+                <span>− {formatMoney(s.returnedAmount)}</span>
+              </div>
+            )}
             <div>
-              <span>Paid (verified)</span>
+              <span>{Number(s.refundedAmount) > 0 ? 'Paid, after refunds' : 'Paid (verified)'}</span>
               <span>{formatMoney(s.paidAmount)}</span>
             </div>
             {Number(s.unverifiedAmount) > 0 && (
@@ -229,7 +312,54 @@ function SaleDetail({ id, onClose, onChanged }) {
           </div>
           {s.note && <p className="field-hint">Note: {s.note}</p>}
 
-          {voiding ? (
+          {s.returns.length > 0 && (
+            <>
+              <h2 className="section-title">Returns</h2>
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Return</th>
+                      <th>Items</th>
+                      <th className="num">Value</th>
+                      <th className="num">Refunded</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.returns.map((r) => (
+                      <tr key={r.id}>
+                        <td className="nowrap">
+                          <strong>{r.returnNo}</strong>
+                          <span className="sub">{formatDateTime(r.returnDate)}</span>
+                        </td>
+                        <td>
+                          {r.items.map((i) => `${i.name} × ${i.quantity}`).join(', ')}
+                          <span className="sub">{r.reason}</span>
+                        </td>
+                        <td className="num">{formatMoney(r.returnAmount)}</td>
+                        <td className="num">
+                          {formatMoney(r.refundAmount)}
+                          {Number(r.refundAmount) > 0 && <span className="sub">{r.refundMethod === 'cash' ? 'Cash' : 'To advance balance'}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {returning ? (
+            <ReturnForm
+              sale={s}
+              onCancel={() => setReturning(false)}
+              onDone={() => {
+                setReturning(false);
+                reload();
+                onChanged();
+              }}
+            />
+          ) : voiding ? (
             <VoidSaleForm
               sale={s}
               onCancel={() => setVoiding(false)}
@@ -241,7 +371,12 @@ function SaleDetail({ id, onClose, onChanged }) {
             />
           ) : (
             <div className="form-actions">
-              {can('sales.void') && s.status === 'completed' && s.saleType === 'sale' && (
+              {can('sales.return') && s.status === 'completed' && s.items.some((i) => i.type === 'product' && i.quantity > i.returnedQuantity) && (
+                <button type="button" className="btn btn-ghost" onClick={() => setReturning(true)}>
+                  Return items…
+                </button>
+              )}
+              {can('sales.void') && s.status === 'completed' && s.saleType === 'sale' && Number(s.returnedAmount) === 0 && (
                 <button type="button" className="btn btn-danger-ghost" onClick={() => setVoiding(true)}>
                   Void sale…
                 </button>

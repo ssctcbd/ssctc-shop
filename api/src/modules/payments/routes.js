@@ -4,6 +4,8 @@ const { validateBody, idParam } = require('../../middleware/validate');
 const { staffWith, requireStaff, enforceMustChangePassword } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { recalculateSale, recalculateCustomer } = require('../../lib/ledger');
+const { applyAdvanceMovement } = require('../../lib/advance');
+const { toPaisa } = require('../../lib/money');
 const { conflict, notFound } = require('../../lib/errors');
 const { z, requiredText } = require('../../lib/schemas');
 
@@ -69,7 +71,11 @@ router.post('/payments/:id/unverify', staffWith('payments.verify'), idParam, asy
   const payment = await changePayment(req, {
     action: 'payment.unverify',
     alreadyDone: 'This payment is not verified.',
-    change: async (conn) => (await conn.execute("UPDATE payments SET is_verified = 0, verified_by = NULL, verified_at = NULL WHERE id = ? AND is_verified = 1 AND status = 'active'", [req.id]))[0].affectedRows,
+    change: async (conn, current) => {
+      // Advance is money the shop already holds; there is nothing to un-verify.
+      if (current.method === 'customer_advance') throw conflict('A payment from the advance balance is always verified. Void it instead.');
+      return (await conn.execute("UPDATE payments SET is_verified = 0, verified_by = NULL, verified_at = NULL WHERE id = ? AND is_verified = 1 AND status = 'active'", [req.id]))[0].affectedRows;
+    },
   });
   res.json({ payment });
 });
@@ -80,7 +86,14 @@ router.post('/payments/:id/void', staffWith('payments.void'), idParam, validateB
   const payment = await changePayment(req, {
     action: 'payment.void',
     alreadyDone: 'This payment has been voided.',
-    change: async (conn) => (await conn.execute("UPDATE payments SET status = 'void', void_reason = ?, voided_by = ?, voided_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'active'", [req.body.reason, req.user.id, req.id]))[0].affectedRows,
+    change: async (conn, current) => {
+      const [updated] = await conn.execute("UPDATE payments SET status = 'void', void_reason = ?, voided_by = ?, voided_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'active'", [req.body.reason, req.user.id, req.id]);
+      // Advance that was spent goes back to the customer's balance.
+      if (updated.affectedRows === 1 && current.method === 'customer_advance') {
+        await applyAdvanceMovement(conn, { customerId: current.customer_id, deltaPaisa: toPaisa(current.amount), movementType: 'payment_void', paymentId: current.id, note: `Receipt ${current.receipt_no} voided`, userId: req.user.id });
+      }
+      return updated.affectedRows;
+    },
   });
   res.json({ payment });
 });

@@ -9,6 +9,8 @@ import { useCan } from '@/lib/session';
 import { useFetch } from '@/lib/useFetch';
 
 const METHODS = { cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', bank_transfer: 'Bank transfer', other: 'Other' };
+// Cash is in hand and advance is money the shop already holds: neither needs a reference or a check.
+const isSettled = (method) => method === 'cash' || method === 'customer_advance';
 
 /**
  * One box for products and services: type a name, or type/scan a code. When
@@ -102,7 +104,8 @@ export default function PosPage() {
   const total = Math.max(0, Number(subtotal) - Number(discount || 0)).toFixed(2);
   const tendered = sumMoney(payments.map((p) => p.amount));
   const mayVerify = can('payments.verify');
-  const counted = sumMoney(payments.filter((p) => p.method === 'cash' || (p.verified && mayVerify)).map((p) => p.amount));
+  const counted = sumMoney(payments.filter((p) => isSettled(p.method) || (p.verified && mayVerify)).map((p) => p.amount));
+  const advance = customer ? Number(customer.advanceBalance) : 0;
   const due = (Number(total) - Number(counted)).toFixed(2);
   const unverified = (Number(tendered) - Number(counted)).toFixed(2);
 
@@ -128,7 +131,7 @@ export default function PosPage() {
           // The price is sent only when it was changed; otherwise the server uses the catalog price.
           ...(Number(l.unitPrice) !== Number(l.listPrice) ? { unitPrice: l.unitPrice } : {}),
         })),
-        payments: sentPayments.map((p) => ({ method: p.method, amount: p.amount, reference: p.method === 'cash' ? '' : p.reference, verified: p.method !== 'cash' && p.verified && mayVerify })),
+        payments: sentPayments.map((p) => ({ method: p.method, amount: p.amount, reference: isSettled(p.method) ? '' : p.reference, verified: !isSettled(p.method) && p.verified && mayVerify })),
       });
       router.replace(`/sales/invoice/?id=${sale.id}&new=1`);
     } catch (err) {
@@ -207,7 +210,7 @@ export default function PosPage() {
                   </option>
                 ))}
               </datalist>
-              <p className="field-hint">{customer ? `Saved customer${Number(customer.currentDue) > 0 ? ` · already owes ${formatMoney(customer.currentDue)}` : ''}` : walkInName ? 'Walk-in (name printed on the invoice). A due needs a saved customer.' : 'Walk-in sale.'}</p>
+              <p className="field-hint">{customer ? `Saved customer${Number(customer.currentDue) > 0 ? ` · already owes ${formatMoney(customer.currentDue)}` : ''}${advance > 0 ? ` · advance balance ${formatMoney(advance)}` : ''}` :walkInName ? 'Walk-in (name printed on the invoice). A due needs a saved customer.' : 'Walk-in sale.'}</p>
             </div>
 
             <div className="totals" style={{ maxWidth: 'none' }}>
@@ -236,9 +239,11 @@ export default function PosPage() {
                       {label}
                     </option>
                   ))}
+                  {(advance > 0 || p.method === 'customer_advance') && <option value="customer_advance">Advance balance ({formatMoney(advance)})</option>}
                 </Field>
                 <Field label="Amount (৳)" inputMode="decimal" placeholder="0" value={p.amount} error={fields[`pay.${p.key}.amount`]} onChange={(e) => setPayment(p.key, { amount: e.target.value })} />
-                {p.method !== 'cash' && (
+                {p.method === 'customer_advance' && Number(p.amount) > advance && <p className="field-error pos-pay-wide">Only {formatMoney(advance)} is available in the advance balance.</p>}
+                {!isSettled(p.method) && (
                   <div className="pos-pay-wide">
                     <Field label="Transaction ID / reference" maxLength={60} value={p.reference} error={fields[`pay.${p.key}.reference`] || fields['payments.reference']} onChange={(e) => setPayment(p.key, { reference: e.target.value })} />
                     {mayVerify ? <Checkbox label="I have checked: the money has arrived" checked={p.verified} onChange={(e) => setPayment(p.key, { verified: e.target.checked })} /> : <p className="field-hint">Counts as paid only after the Owner verifies it.</p>}

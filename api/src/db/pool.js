@@ -17,8 +17,17 @@ const pool = mysql.createPool({
 });
 
 // Each new connection speaks UTC, so CURRENT_TIMESTAMP and NOW() are UTC too.
+//
+// READ COMMITTED, not MySQL's default REPEATABLE READ. Under REPEATABLE READ a
+// transaction's plain SELECTs all see the database as it was at its first read,
+// which here happens *before* it has waited for its row locks. A transaction
+// that queued behind another would then lock the sale, yet still count returns
+// or payments from before the other one committed, and act on stale numbers.
+// With READ COMMITTED every statement sees what is committed when it runs, so
+// "take the lock, then read" is always reading the truth.
 pool.pool.on('connection', (conn) => {
   conn.query("SET time_zone = '+00:00'");
+  conn.query('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
 });
 
 async function query(sql, params = []) {

@@ -44,7 +44,7 @@ it('migration creates every table in DATABASE_SCHEMA.md', async () => {
   const rows = await db.query('SELECT table_name AS t FROM information_schema.tables WHERE table_schema = DATABASE()');
   const tables = rows.map((r) => r.t).sort();
   assert.deepEqual(tables, [
-    'audit_logs', 'categories', 'customer_sessions', 'customers', 'daily_cash_closings', 'document_counters',
+    'audit_logs', 'categories', 'customer_advance_movements', 'customer_sessions', 'customers', 'daily_cash_closings', 'document_counters',
     'expense_categories', 'expenses', 'inventory_movements', 'login_attempts', 'payment_allocations', 'payments',
     'products', 'purchase_items', 'purchases', 'role_permissions', 'roles', 'sale_items', 'sale_return_items',
     'sale_returns', 'sales', 'services', 'sessions', 'settings', 'supplier_payments', 'suppliers', 'users',

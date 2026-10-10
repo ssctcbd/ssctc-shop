@@ -30,9 +30,15 @@ Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEM
 - Printable invoice in A4, 80mm and 58mm thermal layouts; share the bill to WhatsApp.
 - Screens: New sale, Sales, Invoice, Customers.
 
-Still to come: sale returns, invoice QR code, bills in the customer portal (rest
-of Milestone 3), due collection, expenses and cash closing (4), dashboard figures
-and reports (5).
+## What exists (Milestone 3, part 2 — Returns, advance, QR, portal)
+
+- Sale returns: products come back into stock; their value cancels the due first and the rest is refunded in cash or as advance credit.
+- Customer advance balance: deposits with a receipt, paying a bill from the balance, full history.
+- QR code on every invoice that opens that one bill without logging in.
+- Customer portal: own bills, payment receipts, warranties with days left, advance history. Read-only.
+
+Still to come: due collection, payments list, expenses and cash closing
+(Milestone 4), dashboard figures and reports (5).
 
 To package a release for cPanel: `powershell -File scripts\package-release.ps1`,
 then follow DEPLOYMENT_PLAN.md §9.

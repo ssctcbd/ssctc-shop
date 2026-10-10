@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
@@ -107,11 +107,58 @@ function OpeningDueForm({ customer, onDone, onCancel }) {
   );
 }
 
+const ADVANCE_TYPES = { deposit: 'Deposit', sale_payment: 'Spent on a sale', payment_void: 'Returned (payment voided)', return_credit: 'Credit for returned goods' };
+const DEPOSIT_METHODS = { cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', bank_transfer: 'Bank transfer', other: 'Other' };
+
+function DepositForm({ customer, canVerify, onDone, onCancel }) {
+  // One key per form, so a repeated save records the deposit once.
+  const idempotencyKey = useRef(null);
+  const form = useForm({ amount: '', method: 'cash', reference: '', note: '' }, async (v) => {
+    idempotencyKey.current ||= crypto.randomUUID();
+    await api.post(`/customers/${customer.id}/advance-deposit`, { idempotencyKey: idempotencyKey.current, amount: v.amount, method: v.method, reference: v.method === 'cash' ? '' : v.reference, note: v.note });
+    onDone();
+  });
+  const { values: v, fields: f, set } = form;
+  return (
+    <form onSubmit={form.onSubmit} noValidate className="inline-box">
+      <p className="muted" style={{ marginBottom: 12 }}>
+        Money {customer.name} leaves with the shop to spend on later bills.
+      </p>
+      <Notice>{form.error !== 'Please check the highlighted fields.' && form.error}</Notice>
+      <div className="form-grid">
+        <Field label="Amount received (৳)" inputMode="decimal" autoFocus required value={v.amount} error={f.amount} onChange={set('amount')} />
+        <Field as="select" label="Received by" value={v.method} error={f.method} onChange={set('method')} hint={canVerify ? undefined : 'You can record cash. Other methods need the Owner.'}>
+          {Object.entries(DEPOSIT_METHODS)
+            .filter(([value]) => canVerify || value === 'cash')
+            .map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+        </Field>
+        {v.method !== 'cash' && <Field label="Transaction ID / reference" maxLength={60} value={v.reference} error={f.reference} onChange={set('reference')} hint="Record it only after checking the money has arrived." />}
+        <Field label="Note" maxLength={255} value={v.note} error={f.note} onChange={set('note')} />
+      </div>
+      <div className="form-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>
+          Cancel
+        </button>
+        <SubmitButton busy={form.busy} block={false}>
+          Save advance
+        </SubmitButton>
+      </div>
+    </form>
+  );
+}
+
 function CustomerDetail({ id, onClose, onChanged, onEdit }) {
   const can = useCan();
   const { data, error, reload } = useFetch(`/customers/${id}`);
+  const advance = useFetch(`/customers/${id}/advance`);
   const [newPin, setNewPin] = useState('');
   const [opening, setOpening] = useState(false);
+  const [depositing, setDepositing] = useState(false);
+  const movements = advance.data?.movements || [];
   const [actionError, setActionError] = useState('');
   const c = data?.customer;
   const sales = data?.sales || [];
@@ -177,12 +224,30 @@ function CustomerDetail({ id, onClose, onChanged, onEdit }) {
                 Opening due
               </button>
             )}
+            {can('payments.create') && c.isActive && !depositing && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setDepositing(true)}>
+                Add advance
+              </button>
+            )}
             {can('customers.reset_pin') && c.phone && (
               <button className="btn btn-ghost btn-sm" onClick={resetPin}>
                 Reset PIN
               </button>
             )}
           </div>
+          {depositing && (
+            <DepositForm
+              customer={c}
+              canVerify={can('payments.verify')}
+              onCancel={() => setDepositing(false)}
+              onDone={() => {
+                setDepositing(false);
+                reload();
+                advance.reload();
+                onChanged();
+              }}
+            />
+          )}
           {opening && (
             <OpeningDueForm
               customer={c}
@@ -236,6 +301,37 @@ function CustomerDetail({ id, onClose, onChanged, onEdit }) {
             </table>
             {sales.length === 0 && <div className="empty">No sales yet.</div>}
           </div>
+
+          {movements.length > 0 && (
+            <>
+              <h2 className="section-title">Advance balance history</h2>
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>What</th>
+                      <th className="num">Amount</th>
+                      <th className="num">Balance after</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.map((m) => (
+                      <tr key={m.id}>
+                        <td className="nowrap">{formatDate(m.createdAt)}</td>
+                        <td>
+                          {ADVANCE_TYPES[m.type] || m.type}
+                          <span className="sub">{[m.receiptNo, m.method && DEPOSIT_METHODS[m.method], m.reference, m.note].filter(Boolean).join(' · ')}</span>
+                        </td>
+                        <td className={`num ${Number(m.amount) > 0 ? 'qty-in' : 'qty-out'}`}>{Number(m.amount) > 0 ? `+ ${formatMoney(m.amount)}` : `− ${formatMoney(Math.abs(Number(m.amount)))}`}</td>
+                        <td className="num">{formatMoney(m.balanceAfter)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </>
       )}
     </Modal>

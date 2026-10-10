@@ -8,6 +8,8 @@ const { hashSecret, newPin } = require('../../lib/crypto');
 const { normalizePhone } = require('../../lib/phone');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { recalculateCustomer } = require('../../lib/ledger');
+const { applyAdvanceMovement } = require('../../lib/advance');
+const { toPaisa } = require('../../lib/money');
 const { documentDate } = require('../../lib/dates');
 const { conflict, notFound, badRequest } = require('../../lib/errors');
 const { z, positiveMoney, optionalText, optionalTextUpdate, requiredText, flag, day, queryFlag, paging } = require('../../lib/schemas');
@@ -252,6 +254,68 @@ router.post('/customers/:id/opening-balance', staffWith('customers.manage'), idP
     return { id: result.insertId, invoiceNo };
   });
   res.status(201).json({ sale });
+});
+
+// --- advance balance --------------------------------------------------------
+
+const depositSchema = z.strictObject({
+  idempotencyKey: z.string().uuid('Not a valid key.'),
+  amount: positiveMoney,
+  method: z.enum(['cash', 'bkash', 'nagad', 'bank_transfer', 'other']).default('cash'),
+  reference: optionalText(60).transform((v) => (v ? v.toUpperCase() : null)),
+  note: optionalText(255),
+});
+
+const movementToApi = (m) => ({
+  id: m.id,
+  type: m.movement_type,
+  amount: m.amount, // signed: positive in, negative out
+  balanceAfter: m.balance_after,
+  method: m.method,
+  reference: m.reference,
+  receiptNo: m.receipt_no,
+  note: m.note,
+  createdAt: m.created_at,
+  recordedByName: m.user_name,
+});
+
+/**
+ * Money a customer leaves with the shop to spend later. It joins the balance
+ * at once, so it must be money the shop is sure of: cash, or a transfer
+ * recorded by someone allowed to verify payments.
+ */
+router.post('/customers/:id/advance-deposit', staffWith('payments.create'), idParam, validateBody(depositSchema), async (req, res) => {
+  const b = req.body;
+  const receipt = async () => (await query('SELECT receipt_no, amount, balance_after FROM customer_advance_movements WHERE idempotency_key = ?', [b.idempotencyKey]))[0];
+  const shape = (row) => ({ receiptNo: row.receipt_no, amount: row.amount, balanceAfter: row.balance_after });
+
+  const existing = await receipt();
+  if (existing) return res.status(200).json({ deposit: shape(existing), duplicate: true });
+  if (b.method !== 'cash' && !req.user.permissions.includes('payments.verify')) {
+    throw fieldError('method', 'Only someone who can verify payments may record an advance received by bKash, Nagad or bank. Take cash, or ask the Owner.');
+  }
+
+  try {
+    await transaction(async (conn) => {
+      const [rows] = await conn.execute('SELECT is_active FROM customers WHERE id = ? FOR UPDATE', [req.id]);
+      if (!rows[0]) throw notFound('Customer not found.');
+      if (!rows[0].is_active) throw conflict('This customer is inactive.');
+      const receiptNo = await nextDocumentNumber(conn, 'receipt');
+      const moved = await applyAdvanceMovement(conn, { customerId: req.id, deltaPaisa: toPaisa(b.amount), movementType: 'deposit', method: b.method, reference: b.reference, receiptNo, note: b.note, idempotencyKey: b.idempotencyKey, userId: req.user.id });
+      await writeAudit({ conn, actorUserId: req.user.id, action: 'customer.advance_deposit', entityType: 'customer', entityId: req.id, newValues: { receiptNo, amount: b.amount, method: b.method, reference: b.reference, balanceAfter: moved.balanceAfter }, ip: req.ip });
+    });
+  } catch (err) {
+    if (!(err.code === 'ER_DUP_ENTRY' && String(err.message).includes('uq_advance_idempotency'))) throw err;
+  }
+  const saved = await receipt();
+  res.status(201).json({ deposit: shape(saved) });
+});
+
+router.get('/customers/:id/advance', staffWith('customers.view'), idParam, async (req, res) => {
+  const rows = await query('SELECT advance_balance FROM customers WHERE id = ?', [req.id]);
+  if (!rows[0]) throw notFound('Customer not found.');
+  const movements = await query('SELECT m.*, u.name AS user_name FROM customer_advance_movements m JOIN users u ON u.id = m.created_by WHERE m.customer_id = ? ORDER BY m.id DESC LIMIT 200', [req.id]);
+  res.json({ advanceBalance: rows[0].advance_balance, movements: movements.map(movementToApi) });
 });
 
 module.exports = router;

@@ -3,9 +3,9 @@
 Internal shop management system for a computer shop that also provides printing,
 photocopying and online services. Used by the shop's own staff only.
 
-Status: **Milestones 1, 2 and the first part of 3 (customers, POS, sales, invoices, payment verify/void) built and tested locally; nothing after Milestone 1 is deployed. Milestone 0 (hosting verification) is partly done.**
+Status: **Milestones 1, 2 and 3 built and tested locally; nothing after Milestone 1 is deployed. Milestone 0 (hosting verification) is partly done.** Milestone 3 now includes sale returns, the QR code on invoices, bills in the customer portal and the customer advance balance (migration 003).
 
-Still open in Milestone 3: sale returns, QR code on invoices, bills in the customer portal, customer advance balance. Provisional defaults in use until the owner decides otherwise: D2 (only verified payments reduce a due), D3 (a due needs a saved customer), D4 (Staff sells and records payments; only the Owner verifies, voids, edits prices and back-dates). Any seller may give a sale-level discount; it is recorded in the audit log.
+Not built, and belonging to Milestone 4: collecting a due after the sale, the payments list, paying an advance back out in cash, supplier payments, expenses and cash closing. Provisional defaults in use until the owner decides otherwise: D2 (only verified payments reduce a due), D3 (a due needs a saved customer), D4 (Staff sells and records payments; only the Owner verifies, voids, edits prices and back-dates). Any seller may give a sale-level discount; it is recorded in the audit log.
 Last revised: 2026-10-10 (scope update: internal management system; see §2)
 
 Companion documents:
