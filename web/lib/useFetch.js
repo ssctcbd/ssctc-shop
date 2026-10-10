@@ -23,6 +23,8 @@ export function useFetch(path) {
         if (cancelled) return;
         // Session ended while the screen was open: back to the login page.
         if (error.status === 401) window.location.assign('/login/');
+        // The API refuses everything until a password set by the Owner is replaced.
+        else if (error.code === 'password_change_required') window.location.assign('/account/');
         else setState((s) => ({ ...s, error, loading: false }));
       });
     return () => {

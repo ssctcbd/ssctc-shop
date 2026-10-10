@@ -2,7 +2,7 @@ const { env } = require('../config/env');
 const { query } = require('../db/pool');
 const { hashToken } = require('../lib/crypto');
 const { readCookie } = require('../lib/cookies');
-const { unauthenticated, forbidden } = require('../lib/errors');
+const { AppError, unauthenticated, forbidden } = require('../lib/errors');
 
 // last_seen_at is refreshed at most this often, to avoid a write per request.
 const TOUCH_INTERVAL_SECONDS = 60;
@@ -67,8 +67,26 @@ function requirePermission(permission) {
   };
 }
 
-/** Route guard: a logged-in staff user holding `permission`. */
-const staffWith = (permission) => [requireStaff, requirePermission(permission)];
+// The only things a user with a password set by someone else may do before
+// choosing their own. Matched against the path after the API prefix.
+const PASSWORD_CHANGE_ALLOWED = /\/auth\/(change-password|me|logout)\/?$/;
+
+/**
+ * A user whose password was set by the Owner (must_change_password = 1) is
+ * refused everything except changing it, reading their own profile and logging
+ * out. The screens redirect such a user to the password page; this makes the
+ * API enforce the same rule. Use after requireStaff.
+ */
+function enforceMustChangePassword(req, _res, next) {
+  if (!req.user) return next(unauthenticated());
+  if (req.user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.test(req.path) && !PASSWORD_CHANGE_ALLOWED.test(req.originalUrl.split('?')[0])) {
+    return next(new AppError(403, 'password_change_required', 'Change your password before continuing.'));
+  }
+  next();
+}
+
+/** Route guard: a logged-in staff user, with their own password, holding `permission`. */
+const staffWith = (permission) => [requireStaff, enforceMustChangePassword, requirePermission(permission)];
 
 /**
  * Customer portal session. Entirely separate from staff sessions: a different
@@ -118,4 +136,4 @@ async function requireCustomer(req, _res, next) {
   next();
 }
 
-module.exports = { requireStaff, requirePermission, staffWith, requireCustomer, loadStaffSession, loadCustomerSession };
+module.exports = { requireStaff, requirePermission, enforceMustChangePassword, staffWith, requireCustomer, loadStaffSession, loadCustomerSession };

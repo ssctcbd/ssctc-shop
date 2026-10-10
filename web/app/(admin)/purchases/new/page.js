@@ -17,6 +17,10 @@ export default function NewPurchasePage() {
   const options = useFetch('/products/options');
   const products = options.data?.products || [];
 
+  // One key per bill, made on the first save and reused if that save is
+  // repeated (double click, retry after a lost connection), so the server
+  // stores the bill once.
+  const idempotencyKey = useRef(null);
   const nextKey = useRef(1);
   const newLine = () => ({ key: nextKey.current++, productId: null, quantity: '', unitCost: '' });
   const [head, setHead] = useState({ supplierId: '', date: '', supplierMemoNo: '', note: '', paidAmount: '', paymentMethod: 'cash', paymentReference: '' });
@@ -44,8 +48,10 @@ export default function NewPurchasePage() {
     const filled = lines.filter((l) => l.productId || l.quantity || l.unitCost);
     if (filled.length === 0) return setError('Add at least one product.');
     setBusy(true);
+    idempotencyKey.current ||= crypto.randomUUID();
     try {
       const { purchase } = await api.post('/purchases', {
+        idempotencyKey: idempotencyKey.current,
         supplierId: Number(head.supplierId) || 0,
         ...(head.date ? { date: head.date } : {}),
         supplierMemoNo: head.supplierMemoNo,

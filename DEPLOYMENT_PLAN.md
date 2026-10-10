@@ -184,3 +184,60 @@ launch and every three months after.
 - [ ] Backup taken, downloaded off-server and restored once successfully
 - [ ] A logged-out browser reaches nothing but the login page, and API requests without a session are refused
 - [ ] The owner completes a sale with partial payment, a later due collection, a payment verification and a day-end report on the shop PC
+
+## 9. Deploying a release with cPanel File Manager
+
+A procedure that needs no SSH. It assumes the Milestone 0 results reported on
+2026-10-11: the Node.js application already exists, `/api` reaches it, and its
+environment variables are set. Do it outside shop hours.
+
+**On the PC**
+
+1. In the project folder run `powershell -File scripts\package-release.ps1`.
+   It builds the site and writes `release\ssctc-shop-web.zip` and
+   `release\ssctc-shop-api.zip`, and lists the migrations in the release.
+
+**Database (phpMyAdmin)**
+
+2. Export the database first (Export -> Quick -> SQL) and keep the file.
+3. Open the database, choose the SQL tab, and run each migration file that has
+   not been run on this database yet, in number order: paste the content of
+   `api\migrations\001_initial_schema.sql`, then `002_...`, and so on.
+   Migration 001 is run once only, on the empty database. From 002 onward the
+   files check before changing anything, so running one twice does no harm.
+4. First deployment only: run `api\seeds\001_base_data.sql` the same way.
+
+**API (File Manager + Node.js page)**
+
+5. Upload `ssctc-shop-api.zip` into the Node.js application root and Extract,
+   replacing existing files. The zip contains no `node_modules` and no `.env`.
+6. On the cPanel Node.js page: press **Run NPM Install** if `package.json`
+   changed (always on the first deployment), then **Restart**.
+7. First deployment only, create the Owner account: use **Run JS script** ->
+   `seed`, with `OWNER_NAME`, `OWNER_USERNAME` and `OWNER_PASSWORD` added to
+   the environment variables beforehand. Remove those three variables
+   afterwards and restart. (If SSH is available: `npm run seed` asks for them.)
+8. Open `https://shop.sscomputertrainingcentre.com/api/v1/health`. It must
+   show `{"status":"ok","database":"ok"}`.
+
+**Site (File Manager)**
+
+9. Upload `ssctc-shop-web.zip` into the subdomain's document root and Extract,
+   replacing existing files. **Do not delete the `api` folder or the
+   `.htaccess` file there**: cPanel's Node.js routing lives in them.
+10. Open the site, log in, open Products and Purchases, and log in to
+    `/portal/login/` once.
+
+**If something is wrong**
+
+- Health shows `database: unavailable`: check the `DB_*` environment variables.
+- A page shows "Something went wrong" after an update: a migration was missed.
+- To go back: extract the previous release's two zips the same way and restart.
+  Restore the database export only as a last resort; it loses everything
+  entered since.
+
+Still unverified on this hosting (Section 2): resource limits (H1), memory
+(T10), concurrency (T11), idle and crash recovery (T12, T13), client IP (T15),
+cron (T16), database dump (T17) and the **Run JS script** route for migrations
+(T19). Until T15 is checked, per-IP login blocking may count every visitor as
+one address; the per-account lockout is unaffected.

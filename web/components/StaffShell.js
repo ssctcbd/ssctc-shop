@@ -15,9 +15,9 @@ const NAV = [
   {
     group: 'Selling',
     items: [
-      { label: 'POS / New sale', milestone: 3, permission: 'sales.create' },
-      { label: 'Sales', milestone: 3, permission: 'sales.view' },
-      { label: 'Customers', milestone: 3, permission: 'customers.view' },
+      { label: 'POS / New sale', href: '/pos/', permission: 'sales.create' },
+      { label: 'Sales', href: '/sales/', permission: 'sales.view' },
+      { label: 'Customers', href: '/customers/', permission: 'customers.view' },
       { label: 'Dues', milestone: 4, permission: 'customers.view' },
       { label: 'Payments', milestone: 4, permission: 'payments.view' },
     ],

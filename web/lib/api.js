@@ -48,4 +48,7 @@ export const api = {
   get: (path) => request('GET', path),
   post: (path, body = {}) => request('POST', path, body),
   put: (path, body = {}) => request('PUT', path, body),
+  patch: (path, body = {}) => request('PATCH', path, body),
+  // No body: the API's CSRF guard only inspects a body when one is sent.
+  delete: (path) => request('DELETE', path),
 };

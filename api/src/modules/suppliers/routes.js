@@ -57,7 +57,7 @@ const supplierToApi = (row) => ({
  * inside every transaction that changes a purchase.
  */
 async function recalculatePayable(conn, supplierId) {
-  await conn.execute('UPDATE suppliers SET current_payable = (SELECT COALESCE(SUM(due_amount), 0) FROM purchases WHERE supplier_id = ?) WHERE id = ?', [supplierId, supplierId]);
+  await conn.execute("UPDATE suppliers SET current_payable = (SELECT COALESCE(SUM(due_amount), 0) FROM purchases WHERE supplier_id = ? AND status = 'active') WHERE id = ?", [supplierId, supplierId]);
 }
 
 /** Lock the supplier row first; every purchase transaction starts here, so they queue instead of deadlocking. */
@@ -151,6 +151,14 @@ const purchaseSchema = z.strictObject({
   paidAmount: money.default('0.00'),
   paymentMethod: z.enum(['cash', 'bkash', 'nagad', 'bank_transfer', 'other']).default('cash'),
   paymentReference: optionalText(60),
+  // UUID made once by the purchase form. A repeat of the same save (double
+  // click, retry after a dropped connection) returns the bill already stored.
+  idempotencyKey: z.string().uuid('Not a valid key.').optional(),
+});
+
+const voidSchema = z.strictObject({
+  // Mandatory, like every void: the record stays and must explain itself.
+  reason: requiredText(3, 255),
 });
 
 const purchaseListSchema = z.strictObject({
@@ -173,15 +181,27 @@ const purchaseToApi = (row) => ({
   paidAmount: row.paid_amount,
   dueAmount: row.due_amount,
   paymentStatus: row.payment_status,
+  status: row.status,
+  voidReason: row.void_reason,
+  voidedAt: row.voided_at,
+  voidedByName: row.voided_by_name ?? null,
   note: row.note,
   createdByName: row.user_name,
 });
 
-const PURCHASE_SELECT = `SELECT pu.*, s.name AS supplier_name, u.name AS user_name,
+const PURCHASE_SELECT = `SELECT pu.*, s.name AS supplier_name, u.name AS user_name, vu.name AS voided_by_name,
          (SELECT COUNT(*) FROM purchase_items pi WHERE pi.purchase_id = pu.id) AS item_count
     FROM purchases pu
     JOIN suppliers s ON s.id = pu.supplier_id
-    JOIN users u ON u.id = pu.created_by`;
+    JOIN users u ON u.id = pu.created_by
+    LEFT JOIN users vu ON vu.id = pu.voided_by`;
+
+/** The summary returned when a bill is saved, and again when the same save is repeated. */
+async function savedPurchase(idempotencyKey) {
+  const rows = await query('SELECT id, purchase_no, total_amount, paid_amount, due_amount, payment_status FROM purchases WHERE idempotency_key = ?', [idempotencyKey]);
+  const row = rows[0];
+  return row ? { id: row.id, purchaseNo: row.purchase_no, totalAmount: row.total_amount, paidAmount: row.paid_amount, dueAmount: row.due_amount, paymentStatus: row.payment_status } : null;
+}
 
 router.get('/purchases', staffWith('suppliers.view'), validateQuery(purchaseListSchema), async (req, res) => {
   const { supplierId, status, from, to, page, pageSize } = req.q;
@@ -193,7 +213,14 @@ router.get('/purchases', staffWith('suppliers.view'), validateQuery(purchaseList
   if (to) (where.push('pu.purchase_date < ?'), params.push(dayEnd(to)));
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  const [totals] = await query(`SELECT COUNT(*) AS total, COALESCE(SUM(pu.total_amount), 0) AS amount, COALESCE(SUM(pu.due_amount), 0) AS due FROM purchases pu ${whereSql}`, params);
+  // Voided bills are listed (with a badge) but never counted in the money totals.
+  const [totals] = await query(
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(IF(pu.status = 'active', pu.total_amount, 0)), 0) AS amount,
+            COALESCE(SUM(IF(pu.status = 'active', pu.due_amount, 0)), 0) AS due
+       FROM purchases pu ${whereSql}`,
+    params,
+  );
   const rows = await query(`${PURCHASE_SELECT} ${whereSql} ORDER BY pu.purchase_date DESC, pu.id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, params);
   res.json({ items: rows.map(purchaseToApi), page, pageSize, total: Number(totals.total), totalAmount: totals.amount, totalDue: totals.due });
 });
@@ -225,6 +252,13 @@ router.get('/purchases/:id', staffWith('suppliers.view'), idParam, async (req, r
  */
 router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSchema), async (req, res) => {
   const b = req.body;
+  const idempotencyKey = b.idempotencyKey ?? null;
+
+  // This save was already stored: answer with that bill, change nothing.
+  if (idempotencyKey) {
+    const existing = await savedPurchase(idempotencyKey);
+    if (existing) return res.status(200).json({ purchase: existing, duplicate: true });
+  }
 
   const seen = new Set();
   for (const [index, item] of b.items.entries()) {
@@ -237,7 +271,21 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
   const paidPaisa = toPaisa(b.paidAmount);
   if (paidPaisa > totalPaisa) throw fieldError('paidAmount', `The amount paid cannot be more than the bill total (${fromPaisa(totalPaisa)}).`);
 
-  const purchase = await transaction(async (conn) => {
+  let purchase;
+  try {
+    purchase = await transaction(createPurchase);
+  } catch (err) {
+    // Two copies of the same save arrived together: the UNIQUE key let one in.
+    // The other is answered with the bill the first one stored.
+    if (idempotencyKey && err.code === 'ER_DUP_ENTRY' && String(err.message).includes('uq_purchases_idempotency')) {
+      const existing = await savedPurchase(idempotencyKey);
+      if (existing) return res.status(200).json({ purchase: existing, duplicate: true });
+    }
+    throw err;
+  }
+  res.status(201).json({ purchase });
+
+  async function createPurchase(conn) {
     const supplier = await lockSupplier(conn, b.supplierId);
     if (!supplier.is_active) throw fieldError('supplierId', 'This supplier is inactive.');
 
@@ -258,9 +306,9 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
     const status = duePaisa === 0 ? 'paid' : paidPaisa > 0 ? 'partial' : 'unpaid';
 
     const [result] = await conn.execute(
-      `INSERT INTO purchases (purchase_no, supplier_id, purchase_date, supplier_memo_no, total_amount, paid_amount, due_amount, payment_status, note, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [purchaseNo, b.supplierId, when, b.supplierMemoNo, fromPaisa(totalPaisa), fromPaisa(paidPaisa), fromPaisa(duePaisa), status, b.note, req.user.id],
+      `INSERT INTO purchases (purchase_no, supplier_id, purchase_date, supplier_memo_no, total_amount, paid_amount, due_amount, payment_status, note, idempotency_key, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [purchaseNo, b.supplierId, when, b.supplierMemoNo, fromPaisa(totalPaisa), fromPaisa(paidPaisa), fromPaisa(duePaisa), status, b.note, idempotencyKey, req.user.id],
     );
     const purchaseId = result.insertId;
 
@@ -296,9 +344,89 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
       ip: req.ip,
     });
     return { id: purchaseId, purchaseNo, totalAmount: fromPaisa(totalPaisa), paidAmount: fromPaisa(paidPaisa), dueAmount: fromPaisa(duePaisa), paymentStatus: status };
+  }
+});
+
+/**
+ * Void a purchase bill. Nothing is deleted: the bill stays, marked void, with
+ * the reason, who and when. One transaction:
+ * lock supplier → lock the bill and check it can be voided → take its products
+ * back out of stock (a ledger row each) → mark it void → recalculate the
+ * supplier's payable → audit.
+ *
+ * Refused when
+ *  - the bill is already void (the conditional UPDATE lets it happen only once);
+ *  - it is an opening payable;
+ *  - money was paid with it: supplier payments cannot be voided yet, and a
+ *    payment must never be left attached to a bill that no longer counts;
+ *  - any of its products has since been sold or adjusted below the quantity on
+ *    the bill, because stock cannot go negative.
+ * A product's cost price goes back to the cost of its latest remaining stock
+ * entry, unless it was changed again after this bill.
+ */
+router.post('/purchases/:id/void', staffWith('purchases.manage'), idParam, validateBody(voidSchema), async (req, res) => {
+  const { reason } = req.body;
+
+  await transaction(async (conn) => {
+    const [found] = await conn.execute('SELECT supplier_id FROM purchases WHERE id = ?', [req.id]);
+    if (!found[0]) throw notFound('Purchase not found.');
+    // Same lock order as saving a bill: supplier first, then the bill, then products.
+    await lockSupplier(conn, found[0].supplier_id, null);
+
+    const [rows] = await conn.execute('SELECT * FROM purchases WHERE id = ? FOR UPDATE', [req.id]);
+    const purchase = rows[0];
+    if (purchase.status !== 'active') throw conflict('This purchase has already been voided.');
+
+    const [items] = await conn.execute('SELECT product_id, quantity, unit_cost FROM purchase_items WHERE purchase_id = ? ORDER BY product_id', [req.id]);
+    if (items.length === 0 && purchase.supplier_memo_no === OPENING_MEMO) throw conflict('An opening payable cannot be voided.');
+    if (toPaisa(purchase.paid_amount) > 0) {
+      throw conflict(`${purchase.purchase_no} has a payment of ${purchase.paid_amount} recorded with it, so it cannot be voided. Supplier payments cannot be reversed yet.`);
+    }
+
+    for (const item of items) {
+      await applyStockMovement(conn, {
+        productId: item.product_id,
+        delta: -item.quantity,
+        movementType: 'adjustment_out',
+        referenceType: 'purchase',
+        referenceId: req.id,
+        note: `Void ${purchase.purchase_no}: ${reason}`.slice(0, 255),
+        userId: req.user.id,
+      });
+
+      // The bill set this product's cost price. If nothing has changed it
+      // since, put back the cost from the latest stock entry that still counts.
+      const [previous] = await conn.execute(
+        `SELECT m.unit_cost
+           FROM inventory_movements m
+           LEFT JOIN purchases pu ON m.reference_type = 'purchase' AND pu.id = m.reference_id
+          WHERE m.product_id = ? AND m.unit_cost IS NOT NULL
+            AND m.movement_type IN ('opening', 'stock_in', 'purchase')
+            AND (pu.id IS NULL OR (pu.status = 'active' AND pu.id <> ?))
+          ORDER BY m.id DESC LIMIT 1`,
+        [item.product_id, req.id],
+      );
+      if (previous[0]) await conn.execute('UPDATE products SET cost_price = ? WHERE id = ? AND cost_price = ?', [previous[0].unit_cost, item.product_id, item.unit_cost]);
+    }
+
+    const [updated] = await conn.execute("UPDATE purchases SET status = 'void', void_reason = ?, voided_by = ?, voided_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'active'", [reason, req.user.id, req.id]);
+    if (updated.affectedRows !== 1) throw conflict('This purchase has already been voided.');
+
+    await recalculatePayable(conn, purchase.supplier_id);
+    await writeAudit({
+      conn,
+      actorUserId: req.user.id,
+      action: 'purchase.void',
+      entityType: 'purchase',
+      entityId: req.id,
+      oldValues: { status: 'active', total: purchase.total_amount, due: purchase.due_amount },
+      newValues: { status: 'void', reason, productsReturned: items.length },
+      ip: req.ip,
+    });
   });
 
-  res.status(201).json({ purchase });
+  const rows = await query(`${PURCHASE_SELECT} WHERE pu.id = ?`, [req.id]);
+  res.json({ purchase: purchaseToApi(rows[0]) });
 });
 
 module.exports = router;

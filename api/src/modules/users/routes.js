@@ -2,7 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const { query, transaction } = require('../../db/pool');
 const { validateBody } = require('../../middleware/validate');
-const { requireStaff, requirePermission } = require('../../middleware/session');
+const { staffWith } = require('../../middleware/session');
 const { hashSecret } = require('../../lib/crypto');
 const { writeAudit } = require('../../lib/audit');
 const { conflict, badRequest } = require('../../lib/errors');
@@ -13,7 +13,7 @@ const { username, newPassword } = require('../auth/schemas');
 const router = express.Router();
 // Guarded per route. A router-wide `router.use(guard)` would also run for
 // every other module's paths that pass through this router.
-const ownerOnly = [requireStaff, requirePermission('users.manage')];
+const ownerOnly = staffWith('users.manage');
 
 const createUserSchema = z.strictObject({
   name: z.string().trim().min(2).max(120),

@@ -17,3 +17,6 @@ web/next-env.d.ts
 backups/
 .DS_Store
 Thumbs.db
+
+# Upload packages built by scripts/package-release.ps1
+release/

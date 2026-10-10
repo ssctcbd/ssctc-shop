@@ -186,7 +186,7 @@ inventory_movements                               append-only ledger
   product_id      BIGINT UNSIGNED   FK → products
   movement_type   ENUM('opening','stock_in','purchase','sale','sale_void',
                        'sale_return','adjustment_in','adjustment_out')
-  quantity        INT               CHECK (quantity <> 0)   + in, − out
+  quantity        INT               CHECK (quantity <> 0)   signed: + in, − out (only zero is refused)
   balance_after   INT               CHECK (balance_after >= 0)
   unit_cost       DECIMAL(12,2)     NULL
   reference_type  ENUM('sale','purchase','return','manual')
@@ -376,11 +376,16 @@ purchases
   paid_amount     DECIMAL(12,2)     default 0, CHECK (paid_amount >= 0 AND paid_amount <= total_amount)
   due_amount      DECIMAL(12,2)                   derived — total_amount - paid_amount
   payment_status  ENUM('unpaid','partial','paid') derived
+  status          ENUM('active','void')           default 'active'      (migration 002)
   note            VARCHAR(500)      NULL
+  idempotency_key CHAR(36)          UQ, NULL      UUID from the purchase form (migration 002)
+  void_reason     VARCHAR(255)      NULL          (migration 002)
+  voided_by       BIGINT UNSIGNED   FK → users, NULL                    (migration 002)
+  voided_at       DATETIME          NULL          (migration 002)
   created_by      BIGINT UNSIGNED   FK → users
   created_at, updated_at
   CHECK (due_amount = total_amount - paid_amount)
-  IX (supplier_id, purchase_date), IX (purchase_date)
+  IX (supplier_id, purchase_date), IX (purchase_date), IX (supplier_id, status)
 
 purchase_items
   id              BIGINT UNSIGNED   PK
@@ -553,6 +558,27 @@ ascending `id`, then the payment.
 Every one of these writes an `audit_logs` row with before and after values in the
 same transaction.
 
+As implemented in Milestone 3:
+
+- **Voiding a sale that has payments.** The rule above ("payments are voided
+  first") cannot work for a walk-in sale: voiding its payment would leave a due
+  with no customer, which the table forbids. So `POST /sales/:id/void` accepts an
+  explicit `voidPayments: true`. The sale is marked void and its payments are
+  voided in the same transaction, each with its own audit row. Without the flag
+  the request is refused and reports how many payments and how much money are
+  involved. It needs both `sales.void` and `payments.void`. A payment that also
+  covers another sale is never voided this way.
+- **A walk-in sale can never carry a due.** The sale is refused at the counter
+  unless it is fully paid with verified money, and unverifying or voiding its
+  payment on its own is refused; the sale is voided instead.
+- **Verified at the counter.** Cash is always verified. For other methods the
+  seller's "the money has arrived" tick is honoured only from a user holding
+  `payments.verify`; from anyone else the payment is stored unverified.
+- **Payments taken with a sale** get a server-made idempotency key; the sale's
+  own key is what prevents a duplicate.
+- Recording a payment after the sale (due collection), customer advance balance
+  and sale returns are not built yet.
+
 The `CHECK` constraints on `sales` (`paid_amount ≤ total_amount`,
 `due_amount = total_amount − paid_amount`, no due without a customer) and on
 `customers` (`current_due ≥ 0`, `advance_balance ≥ 0`) make MySQL reject a wrong result even if
@@ -576,12 +602,24 @@ As implemented in Milestone 2:
   'OPENING BALANCE'`; one per supplier.
 - The supplier row is locked first (`SELECT … FOR UPDATE`), then products in
   ascending id, so simultaneous bills queue instead of deadlocking.
-- The schema has no status column on `purchases`, so a saved bill cannot be
-  edited or voided. A wrong bill is corrected with a stock adjustment; a proper
-  purchase void/return needs a schema change and is not yet planned.
-- `purchases`, stock-in and adjustments have no idempotency key in the schema.
-  The forms disable their Save button while saving; a duplicate caused by a
-  network retry is not prevented by the database, unlike sales and payments.
+- `suppliers.current_payable` counts active purchases only.
+- **Duplicate saves (migration 002):** the purchase form sends a UUID as
+  `idempotency_key`. A repeat of the same save, whether it arrives later or at
+  the same moment, is answered with the bill already stored; the unique key is
+  the guarantee.
+- **Void (migration 002):** a bill is never edited or deleted. Voiding it is one
+  transaction: lock supplier → lock the bill → take each product back out of
+  stock with an `adjustment_out` ledger row (`reference_type = 'purchase'`) →
+  set `status = 'void'` with reason, user and time, by a conditional update so
+  it happens once → recalculate the payable → audit. A product's cost price
+  returns to the cost of its latest remaining stock entry, unless it was changed
+  after the bill.
+- Void is refused for an opening payable, for a bill whose products are no
+  longer all in stock, and for a bill with a payment recorded. `supplier_payments`
+  has no void status yet, so a payment cannot be reversed; that belongs with
+  supplier payments in Milestone 4.
+- Stock-in and adjustments still have no idempotency key; their forms disable
+  the Save button while saving.
 
 ### 5.5 Customer advance balances (Wallets)
 

@@ -5,9 +5,10 @@ import Link from 'next/link';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
 import { Field, Notice } from '@/components/Form';
+import { api } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { useCan } from '@/lib/session';
-import { toQuery, useFetch } from '@/lib/useFetch';
+import { toQuery, useFetch, useForm } from '@/lib/useFetch';
 
 const STATUS = { paid: ['Paid', 'badge-ok'], partial: ['Part paid', 'badge-warn'], unpaid: ['Unpaid', 'badge-danger'] };
 const METHODS = { cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', bank_transfer: 'Bank transfer', other: 'Other' };
@@ -17,15 +18,56 @@ function StatusBadge({ status }) {
   return <span className={`badge ${kind}`}>{label}</span>;
 }
 
-function PurchaseDetail({ id, onClose }) {
-  const { data, error } = useFetch(`/purchases/${id}`);
+function VoidForm({ purchase, onDone, onCancel }) {
+  const form = useForm({ reason: '' }, async (v) => {
+    await api.post(`/purchases/${purchase.id}/void`, { reason: v.reason });
+    onDone();
+  });
+
+  return (
+    <form onSubmit={form.onSubmit} noValidate className="void-box">
+      <Notice>{form.error !== 'Please check the highlighted fields.' && form.error}</Notice>
+      <Field
+        as="textarea"
+        label={`Why is ${purchase.purchaseNo} being voided?`}
+        autoFocus
+        required
+        maxLength={255}
+        value={form.values.reason}
+        error={form.fields.reason && 'Write the reason (at least 3 characters).'}
+        onChange={form.set('reason')}
+        hint="The bill stays in the list marked Void. Its products are taken back out of stock and it no longer counts toward what is owed."
+      />
+      <div className="form-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>
+          Keep the bill
+        </button>
+        <button type="submit" className="btn btn-danger" disabled={form.busy}>
+          {form.busy ? 'Voiding…' : 'Void this purchase'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function PurchaseDetail({ id, onClose, onChanged }) {
+  const can = useCan();
+  const { data, error, reload } = useFetch(`/purchases/${id}`);
+  const [voiding, setVoiding] = useState(false);
   const p = data?.purchase;
+  const canVoid = p && can('purchases.manage') && p.status === 'active' && !p.isOpeningBalance;
 
   return (
     <Modal title={p ? `Purchase ${p.purchaseNo}` : 'Purchase'} onClose={onClose} wide>
       <Notice>{error?.message}</Notice>
       {p && (
         <>
+          {p.status === 'void' && (
+            <Notice>
+              Voided on {formatDateTime(p.voidedAt)}
+              {p.voidedByName ? ` by ${p.voidedByName}` : ''}. Reason: {p.voidReason}
+            </Notice>
+          )}
           <div className="kv">
             <div>
               <span>Supplier</span>
@@ -98,6 +140,25 @@ function PurchaseDetail({ id, onClose }) {
             </p>
           )}
           {p.note && <p className="field-hint">Note: {p.note}</p>}
+
+          {canVoid &&
+            (voiding ? (
+              <VoidForm
+                purchase={p}
+                onCancel={() => setVoiding(false)}
+                onDone={() => {
+                  setVoiding(false);
+                  reload();
+                  onChanged();
+                }}
+              />
+            ) : (
+              <div className="form-actions">
+                <button type="button" className="btn btn-danger-ghost" onClick={() => setVoiding(true)}>
+                  Void purchase…
+                </button>
+              </div>
+            ))}
         </>
       )}
     </Modal>
@@ -121,7 +182,7 @@ export default function PurchasesPage() {
     setReady(true);
   }, []);
 
-  const { data, error, loading } = useFetch(ready ? `/purchases${toQuery(filters)}` : null);
+  const { data, error, loading, reload } = useFetch(ready ? `/purchases${toQuery(filters)}` : null);
   const suppliers = useFetch('/suppliers').data?.suppliers || [];
   const items = data?.items || [];
   const setFilter = (name) => (event) => setFilters((f) => ({ ...f, [name]: event.target.value, page: 1 }));
@@ -177,7 +238,7 @@ export default function PurchasesPage() {
           </thead>
           <tbody>
             {items.map((p) => (
-              <tr key={p.id}>
+              <tr key={p.id} className={p.status === 'void' ? 'inactive' : ''}>
                 <td className="nowrap">
                   <strong>{p.purchaseNo}</strong>
                   {p.isOpeningBalance ? <span className="sub">Opening payable</span> : p.supplierMemoNo && <span className="sub">Memo {p.supplierMemoNo}</span>}
@@ -187,9 +248,7 @@ export default function PurchasesPage() {
                 <td className="num">{formatMoney(p.totalAmount)}</td>
                 <td className="num">{formatMoney(p.paidAmount)}</td>
                 <td className="num">{formatMoney(p.dueAmount)}</td>
-                <td>
-                  <StatusBadge status={p.paymentStatus} />
-                </td>
+                <td>{p.status === 'void' ? <span className="badge badge-danger">Void</span> : <StatusBadge status={p.paymentStatus} />}</td>
                 <td className="num">
                   <button className="btn btn-ghost btn-sm" onClick={() => setViewing(p.id)}>
                     View
@@ -201,7 +260,7 @@ export default function PurchasesPage() {
           {data && items.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={3}>All {data.total} matching bills</td>
+                <td colSpan={3}>All {data.total} matching bills (voided bills not counted in totals)</td>
                 <td className="num">{formatMoney(data.totalAmount)}</td>
                 <td />
                 <td className="num">{formatMoney(data.totalDue)}</td>
@@ -214,7 +273,7 @@ export default function PurchasesPage() {
       </div>
       {data && <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={(page) => setFilters((f) => ({ ...f, page }))} />}
 
-      {viewing && <PurchaseDetail id={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <PurchaseDetail id={viewing} onClose={() => setViewing(null)} onChanged={reload} />}
     </>
   );
 }

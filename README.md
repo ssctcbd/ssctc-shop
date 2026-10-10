@@ -17,12 +17,25 @@ Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEM
 
 - Categories (two levels), products, and the service rate list.
 - Stock-in, stock adjustments with a mandatory reason, movement history, low-stock list, ledger reconciliation. Stock can never go below zero.
-- Suppliers with opening payable; purchase bills that add stock, update cost price and track what is owed.
+- Suppliers with opening payable; purchase bills that add stock, update cost price and track what is owed. A bill is stored once even if saved twice, and an unpaid bill can be voided with a reason.
+- A user whose password was set by the Owner can do nothing until they change it.
 - Owner manages everything; Staff can view products and stock only, and never sees cost prices.
 - Screens: Products, Categories, Services, Inventory, Suppliers, Purchases, New purchase.
 
-Still to come: customers, POS and sales (Milestone 3), payments, dues, expenses and
-cash closing (4), dashboard figures and reports (5).
+## What exists (Milestone 3, part 1 — Customers, POS, sales)
+
+- Customers with an automatically issued 6-digit portal PIN, PIN reset, and opening due.
+- POS: products and services on one bill, scan or type a code, warranty and serial number, discount, split payment, walk-in or saved customer.
+- Sales list and detail; verify, unverify and void payments; void a sale (stock returns).
+- Printable invoice in A4, 80mm and 58mm thermal layouts; share the bill to WhatsApp.
+- Screens: New sale, Sales, Invoice, Customers.
+
+Still to come: sale returns, invoice QR code, bills in the customer portal (rest
+of Milestone 3), due collection, expenses and cash closing (4), dashboard figures
+and reports (5).
+
+To package a release for cPanel: `powershell -File scripts\package-release.ps1`,
+then follow DEPLOYMENT_PLAN.md §9.
 
 ## Requirements
 
