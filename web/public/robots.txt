@@ -1,0 +1,3 @@
+# Internal shop system. Nothing here is for search engines.
+User-agent: *
+Disallow: /

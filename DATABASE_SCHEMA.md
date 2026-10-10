@@ -229,6 +229,15 @@ customer_sessions                                 sessions for read-only custome
 
 Walk-in buyers are not stored; their sales have no customer.
 
+Portal PIN handling, as implemented in Milestone 1:
+
+- Login always checks the PIN against `portal_password_hash` (bcrypt).
+- `portal_pin` holds the shop-issued PIN in readable form so staff can view it and
+  tell the customer. When the customer chooses their own PIN it is set to `NULL`;
+  a PIN the customer chose is never stored readably, and staff can then only reset it.
+- Portal login attempts are recorded in `login_attempts` with the identifier
+  `portal:<phone>` (staff logins use `staff:<username>`), so the same lockout applies.
+
 ### 4.5 Sales
 
 ```

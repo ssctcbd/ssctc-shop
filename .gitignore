@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Secrets and local configuration — never commit
+.env
+.env.*
+!.env.example
+
+# Next.js build output
+web/.next/
+web/out/
+web/next-env.d.ts
+
+# Logs, backups, OS files
+*.log
+*.sql.gz
+backups/
+.DS_Store
+Thumbs.db

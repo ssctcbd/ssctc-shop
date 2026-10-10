@@ -3,7 +3,7 @@
 Internal shop management system for a computer shop that also provides printing,
 photocopying and online services. Used by the shop's own staff only.
 
-Status: **plan awaiting approval — no application code has been written.**
+Status: **Milestone 1 (Foundation) built and tested locally; not yet deployed. Milestone 0 (hosting verification) is still outstanding.**
 Last revised: 2026-10-10 (scope update: internal management system; see §2)
 
 Companion documents:
@@ -34,7 +34,7 @@ Labels used throughout:
 - Stack: Next.js + React (JavaScript), Node.js + Express, MySQL.
 - The application consists of an internal staff management POS system plus a lightweight read-only Customer Portal (`/portal`). There is no public storefront, cart, or customer file upload.
 - No payment gateway of any kind. All payments are typed in by staff.
-- Implementation status: the project folder contains only planning documents. No code, database, credentials or configuration exist yet.
+- Implementation status (2026-10-10): `api/` and `web/` exist with the full schema migration, seeds, staff login, customer portal login, roles and the branded layout. No live database, credentials or hosting configuration exist yet. See [README.md](README.md).
 
 ### Assumptions
 

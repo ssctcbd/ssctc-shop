@@ -1,0 +1,134 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import Logo from './Logo';
+import { api } from '@/lib/api';
+import { useStaff } from '@/lib/session';
+
+// The full module list from PROJECT_PLAN.md §4. An entry without `href` is not
+// built yet and shows the milestone it arrives in. `permission` hides entries
+// the user's role cannot use (the API enforces the same rule).
+const NAV = [
+  { group: 'Overview', items: [{ label: 'Dashboard', href: '/dashboard/', permission: 'dashboard.view' }] },
+  {
+    group: 'Selling',
+    items: [
+      { label: 'POS / New sale', milestone: 3, permission: 'sales.create' },
+      { label: 'Sales', milestone: 3, permission: 'sales.view' },
+      { label: 'Customers', milestone: 3, permission: 'customers.view' },
+      { label: 'Dues', milestone: 4, permission: 'customers.view' },
+      { label: 'Payments', milestone: 4, permission: 'payments.view' },
+    ],
+  },
+  {
+    group: 'Stock',
+    items: [
+      { label: 'Products', milestone: 2, permission: 'catalog.view' },
+      { label: 'Services', milestone: 2, permission: 'catalog.view' },
+      { label: 'Inventory', milestone: 2, permission: 'inventory.view' },
+      { label: 'Suppliers', milestone: 2, permission: 'suppliers.view' },
+      { label: 'Purchases', milestone: 2, permission: 'purchases.manage' },
+    ],
+  },
+  {
+    group: 'Money',
+    items: [
+      { label: 'Expenses', milestone: 4, permission: 'expenses.view' },
+      { label: 'Cash closing', milestone: 4, permission: 'cash.view' },
+      { label: 'Reports', milestone: 5, permission: 'reports.view' },
+    ],
+  },
+  {
+    group: 'System',
+    items: [
+      { label: 'Users', milestone: 2, permission: 'users.manage' },
+      { label: 'Settings', milestone: 2, permission: 'settings.manage' },
+    ],
+  },
+];
+
+export default function StaffShell({ children }) {
+  const user = useStaff();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // A user given a password by the Owner must replace it before doing anything else.
+  const mustChange = user.mustChangePassword && !pathname.startsWith('/account');
+  useEffect(() => {
+    if (mustChange) router.replace('/account/');
+  }, [mustChange, router]);
+
+  useEffect(() => setMenuOpen(false), [pathname]);
+
+  async function logout() {
+    try {
+      await api.post('/auth/logout');
+    } finally {
+      // A full page load, so nothing from this session stays in memory.
+      window.location.assign('/login/');
+    }
+  }
+
+  const can = (permission) => user.permissions.includes(permission);
+
+  return (
+    <div className={`shell${menuOpen ? ' menu-open' : ''}`}>
+      <aside className="sidebar" aria-label="Main menu">
+        <div className="sidebar-brand">
+          <Logo height={52} />
+          <span>Shop management</span>
+        </div>
+        <nav className="nav">
+          {NAV.map(({ group, items }) => {
+            const visible = items.filter((item) => can(item.permission));
+            if (visible.length === 0) return null;
+            return (
+              <div key={group}>
+                <div className="nav-group">{group}</div>
+                {visible.map((item) =>
+                  item.href ? (
+                    <Link key={item.label} href={item.href} className={`nav-item${pathname.startsWith(item.href.replace(/\/$/, '')) ? ' active' : ''}`}>
+                      {item.label}
+                    </Link>
+                  ) : (
+                    <div key={item.label} className="nav-item soon" title={`Arrives in milestone ${item.milestone}`}>
+                      {item.label}
+                      <small>M{item.milestone}</small>
+                    </div>
+                  ),
+                )}
+              </div>
+            );
+          })}
+        </nav>
+        <div className="sidebar-user">
+          <strong>{user.name}</strong>
+          <small>
+            {user.role.name} · {user.username}
+          </small>
+          <div className="actions">
+            <Link href="/account/">Password</Link>
+            <button className="link" onClick={logout}>
+              Log out
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <button className="scrim" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
+
+      <div>
+        <header className="topbar">
+          <Logo height={32} />
+          <button className="menu-btn" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
+            Menu
+          </button>
+        </header>
+        <main className="content">{mustChange ? null : children}</main>
+      </div>
+    </div>
+  );
+}
