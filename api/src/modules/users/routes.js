@@ -11,7 +11,9 @@ const { username, newPassword } = require('../auth/schemas');
 // Staff accounts. Owner only (permission users.manage). Edit, block and
 // password reset arrive with the Users screen; Milestone 1 needs list + create.
 const router = express.Router();
-router.use(requireStaff, requirePermission('users.manage'));
+// Guarded per route. A router-wide `router.use(guard)` would also run for
+// every other module's paths that pass through this router.
+const ownerOnly = [requireStaff, requirePermission('users.manage')];
 
 const createUserSchema = z.strictObject({
   name: z.string().trim().min(2).max(120),
@@ -21,7 +23,7 @@ const createUserSchema = z.strictObject({
   role: z.enum(['owner', 'staff']),
 });
 
-router.get('/roles', async (_req, res) => {
+router.get('/roles', ownerOnly, async (_req, res) => {
   const roles = await query('SELECT id, code, name FROM roles ORDER BY id');
   const perms = await query('SELECT role_id, permission FROM role_permissions ORDER BY permission');
   res.json({
@@ -29,7 +31,7 @@ router.get('/roles', async (_req, res) => {
   });
 });
 
-router.get('/users', async (_req, res) => {
+router.get('/users', ownerOnly, async (_req, res) => {
   const users = await query(
     `SELECT u.id, u.name, u.username, u.phone, u.status, u.must_change_password AS mustChangePassword,
             u.last_login_at AS lastLoginAt, u.created_at AS createdAt, r.code AS role
@@ -39,7 +41,7 @@ router.get('/users', async (_req, res) => {
   res.json({ users: users.map((u) => ({ ...u, mustChangePassword: Boolean(u.mustChangePassword) })) });
 });
 
-router.post('/users', validateBody(createUserSchema), async (req, res) => {
+router.post('/users', ownerOnly, validateBody(createUserSchema), async (req, res) => {
   const { name, username: uname, phone = null, password, role } = req.body;
 
   const roles = await query('SELECT id FROM roles WHERE code = ?', [role]);

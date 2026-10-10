@@ -109,6 +109,7 @@ async function startApp() {
       jar,
       get: (url, headers) => request('GET', url, undefined, headers),
       post: (url, body, headers) => request('POST', url, body, headers),
+      put: (url, body, headers) => request('PUT', url, body, headers),
     };
   }
 

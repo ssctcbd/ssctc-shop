@@ -1,4 +1,4 @@
-const { badRequest } = require('../lib/errors');
+const { badRequest, notFound } = require('../lib/errors');
 
 /**
  * Validate req.body against a zod schema. Schemas are strict, so unknown fields
@@ -20,4 +20,28 @@ function validateBody(schema) {
   };
 }
 
-module.exports = { validateBody };
+/**
+ * Validate the query string. The parsed value is put on req.q (Express 5 makes
+ * req.query read-only).
+ */
+function validateQuery(schema) {
+  return (req, _res, next) => {
+    const result = schema.safeParse(req.query);
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      return next(badRequest(`Invalid filter "${issue.path.join('.')}": ${issue.message}`));
+    }
+    req.q = result.data;
+    next();
+  };
+}
+
+/** Validate a numeric :id route parameter and put it on req.id. */
+function idParam(req, _res, next) {
+  const value = Number(req.params.id);
+  if (!Number.isSafeInteger(value) || value < 1) return next(notFound());
+  req.id = value;
+  next();
+}
+
+module.exports = { validateBody, validateQuery, idParam };

@@ -3,7 +3,7 @@
 Internal shop management system for a computer shop that also provides printing,
 photocopying and online services. Used by the shop's own staff only.
 
-Status: **Milestone 1 (Foundation) built and tested locally; not yet deployed. Milestone 0 (hosting verification) is still outstanding.**
+Status: **Milestones 1 (Foundation) and 2 (Catalog, inventory, suppliers and purchases) built and tested locally; Milestone 2 is not deployed. Milestone 0 (hosting verification) is partly done.**
 Last revised: 2026-10-10 (scope update: internal management system; see §2)
 
 Companion documents:
@@ -34,7 +34,8 @@ Labels used throughout:
 - Stack: Next.js + React (JavaScript), Node.js + Express, MySQL.
 - The application consists of an internal staff management POS system plus a lightweight read-only Customer Portal (`/portal`). There is no public storefront, cart, or customer file upload.
 - No payment gateway of any kind. All payments are typed in by staff.
-- Implementation status (2026-10-10): `api/` and `web/` exist with the full schema migration, seeds, staff login, customer portal login, roles and the branded layout. No live database, credentials or hosting configuration exist yet. See [README.md](README.md).
+- Implementation status (2026-10-11): Milestone 1 (schema migration, seeds, staff login, customer portal login, roles, branded layout) and Milestone 2 (categories, products, services, stock-in, adjustments, movement history, low stock, reconciliation, suppliers, purchases) are built in `api/` and `web/` with automated tests. See [README.md](README.md).
+- Milestone 0 results reported by the owner (2026-10-11): Node 22 available; `/api` routing beside static files works; MySQL connection works; environment variables reach the app; HTTPS redirect works; static deep links work. Not yet reported: resource limits, memory and concurrency, idle and crash behaviour, restart, client IP, cron, database dump, migrations on the host (DEPLOYMENT_PLAN.md §2).
 
 ### Assumptions
 
@@ -113,7 +114,7 @@ and thermal POS printer layouts (58mm/80mm) have been approved and moved from De
 | Conflict | Resolution |
 |---|---|
 | `orders` carried online status flow, delivery fields and customer-chosen payment method | Replaced by a simpler `sales` table |
-| Customers were rows in `users` with passwords | New `customers` table without login; `users` is staff only |
+| Customers were rows in `users` with passwords | New `customers` table, separate from staff. Customers cannot register themselves; staff create the record, and the customer gets read-only portal access with mobile number + 6-digit PIN through a separate session (`customer_sessions`). `users` is staff only |
 | One payment belonged to one order | A payment can now be split across several sales, so due collection needs `payment_allocations` |
 | Payment status values `submitted / verified / rejected` described customer submissions | Replaced by a `is_verified` flag set by staff, plus `void` for mistakes |
 | No concept of customer balance | `customers.current_due`, derived from sales and payments |
@@ -129,7 +130,7 @@ better than it suited the public shop.
 ## 3. Architecture — **Decision D1 (unchanged)**
 
 ```
-https://shop.sscomputertrainingcentre.com/        static files (Next.js export): login + admin screens
+https://shop.sscomputertrainingcentre.com/        static files (Next.js export): staff screens + customer portal
 https://shop.sscomputertrainingcentre.com/api/*   one Express app run by cPanel Node.js (Passenger)
 MySQL 8.0.46                                      cPanel database, reached from Express only
 ```
@@ -157,8 +158,11 @@ Design rules:
 
 - Nothing important is kept in server memory; sessions and rate limits live in MySQL.
 - No background timers in the app; scheduled work runs from cPanel Cron.
-- The site tells search engines not to index it, and every screen except login
-  requires a staff session. Every data request is authorised by the API.
+- The site tells search engines not to index it. The only screens open without a
+  session are the two login pages (`/login` for staff, `/portal/login` for
+  customers). Management screens require a staff session; `/portal` screens
+  require a customer session, which never grants access to staff data. Every data
+  request is authorised by the API.
 - Pure-JavaScript dependencies only, to avoid compiling on the server.
 - No paid services and no third-party APIs.
 
@@ -389,7 +393,8 @@ Which actions Staff may perform is **Decision D4**.
 | Input validation | A schema per endpoint; unknown fields rejected |
 | SQL injection | Parameterised queries only; sort and filter columns from fixed allow-lists |
 | Transport | HTTPS only, HSTS, security headers |
-| Exposure | No public pages except login; `noindex`; no self-registration — accounts are created by the Owner |
+| Exposure | No public pages except the staff login and the customer portal login; `noindex`; no self-registration — staff accounts are created by the Owner, customer records and their portal PINs by staff |
+| Customer portal | Mobile number + 6-digit PIN checked against a bcrypt hash; same lockout as staff login; separate cookie and session table; read-only; every query filtered by the logged-in customer's id, so cost prices, profits and other customers' records are never reachable |
 | Secrets | Environment variables only; `.env` never committed |
 | Audit | Payment verification changes, voids, price edits, stock adjustments, user and role changes — with user, time and before/after values |
 | Files | The application accepts no uploads and stores no files |

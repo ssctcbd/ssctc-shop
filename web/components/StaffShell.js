@@ -25,11 +25,12 @@ const NAV = [
   {
     group: 'Stock',
     items: [
-      { label: 'Products', milestone: 2, permission: 'catalog.view' },
-      { label: 'Services', milestone: 2, permission: 'catalog.view' },
-      { label: 'Inventory', milestone: 2, permission: 'inventory.view' },
-      { label: 'Suppliers', milestone: 2, permission: 'suppliers.view' },
-      { label: 'Purchases', milestone: 2, permission: 'purchases.manage' },
+      { label: 'Products', href: '/products/', permission: 'catalog.view' },
+      { label: 'Categories', href: '/categories/', permission: 'catalog.view' },
+      { label: 'Services', href: '/services/', permission: 'catalog.view' },
+      { label: 'Inventory', href: '/inventory/', permission: 'inventory.view' },
+      { label: 'Suppliers', href: '/suppliers/', permission: 'suppliers.view' },
+      { label: 'Purchases', href: '/purchases/', permission: 'suppliers.view' },
     ],
   },
   {
@@ -43,8 +44,8 @@ const NAV = [
   {
     group: 'System',
     items: [
-      { label: 'Users', milestone: 2, permission: 'users.manage' },
-      { label: 'Settings', milestone: 2, permission: 'settings.manage' },
+      { label: 'Users', milestone: 6, permission: 'users.manage' },
+      { label: 'Settings', milestone: 6, permission: 'settings.manage' },
     ],
   },
 ];

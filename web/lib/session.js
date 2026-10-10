@@ -14,6 +14,12 @@ const CustomerContext = createContext(null);
 export const useStaff = () => useContext(StaffContext);
 export const useCustomer = () => useContext(CustomerContext);
 
+/** Returns can(permission) for the logged-in staff user, to show or hide controls. */
+export function useCan() {
+  const user = useStaff();
+  return (permission) => user.permissions.includes(permission);
+}
+
 function useLoad(path, pick, loginPath) {
   const router = useRouter();
   const [state, setState] = useState({ status: 'loading', value: null, error: null });

@@ -67,6 +67,9 @@ function requirePermission(permission) {
   };
 }
 
+/** Route guard: a logged-in staff user holding `permission`. */
+const staffWith = (permission) => [requireStaff, requirePermission(permission)];
+
 /**
  * Customer portal session. Entirely separate from staff sessions: a different
  * cookie, a different table, and it only ever yields a customer id.
@@ -115,4 +118,4 @@ async function requireCustomer(req, _res, next) {
   next();
 }
 
-module.exports = { requireStaff, requirePermission, requireCustomer, loadStaffSession, loadCustomerSession };
+module.exports = { requireStaff, requirePermission, staffWith, requireCustomer, loadStaffSession, loadCustomerSession };

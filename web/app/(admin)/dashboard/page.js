@@ -1,19 +1,24 @@
 'use client';
 
-import { useStaff } from '@/lib/session';
+import Link from 'next/link';
+import { useCan, useStaff } from '@/lib/session';
+import { useFetch } from '@/lib/useFetch';
 
 const MILESTONES = [
   ['Foundation: login, roles, database', 'Ready'],
-  ['Products, services, inventory, suppliers', 'Milestone 2'],
+  ['Products, services, inventory, suppliers, purchases', 'Ready'],
   ['Customers, POS and sales', 'Milestone 3'],
   ['Payments, dues, expenses, cash closing', 'Milestone 4'],
   ['Dashboard figures and reports', 'Milestone 5'],
 ];
 
-// Milestone 1 placeholder. The real figures (today's sales, dues, low stock,
-// cash drawer) arrive with the modules that produce them.
+// Sales, collection and due figures arrive with the modules that produce them
+// (milestones 3–5). Low stock is live from Milestone 2.
 export default function DashboardPage() {
   const user = useStaff();
+  const can = useCan();
+  const lowStock = useFetch(can('inventory.view') ? '/inventory/low-stock' : null);
+  const lowCount = lowStock.data ? lowStock.data.products.length : null;
 
   return (
     <>
@@ -37,16 +42,17 @@ export default function DashboardPage() {
           <span>Outstanding dues</span>
           <b className="muted">—</b>
         </div>
-        <div className="stat">
+        <div className={`stat ${lowCount ? 'due' : ''}`}>
           <span>Low-stock products</span>
-          <b className="muted">—</b>
+          <b className={lowCount === null ? 'muted' : ''}>{lowCount === null ? '—' : lowCount}</b>
+          {lowCount > 0 && <Link href="/inventory/">See the list</Link>}
         </div>
       </div>
 
       <div className="card">
         <h2>System status</h2>
         <p className="muted" style={{ marginBottom: 8 }}>
-          The foundation is in place. Figures above fill in as each module is built.
+          Figures above fill in as each module is built.
         </p>
         <ul className="checklist">
           {MILESTONES.map(([label, status]) => (

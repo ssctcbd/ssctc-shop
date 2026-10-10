@@ -13,7 +13,16 @@ Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEM
 - Sessions, login lockout, audit log, request hardening.
 - Branded layout: login screens, staff shell with the full menu, dashboard placeholder, customer portal home.
 
-Business screens (products, POS, payments, reports) come in later milestones.
+## What exists (Milestone 2 — Catalog, inventory, suppliers, purchases)
+
+- Categories (two levels), products, and the service rate list.
+- Stock-in, stock adjustments with a mandatory reason, movement history, low-stock list, ledger reconciliation. Stock can never go below zero.
+- Suppliers with opening payable; purchase bills that add stock, update cost price and track what is owed.
+- Owner manages everything; Staff can view products and stock only, and never sees cost prices.
+- Screens: Products, Categories, Services, Inventory, Suppliers, Purchases, New purchase.
+
+Still to come: customers, POS and sales (Milestone 3), payments, dues, expenses and
+cash closing (4), dashboard figures and reports (5).
 
 ## Requirements
 

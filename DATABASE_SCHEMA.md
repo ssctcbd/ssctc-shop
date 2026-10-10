@@ -567,6 +567,22 @@ application code is at fault.
 4. Supplier payments reduce `due_amount` on specific purchases or oldest first, and update
    `suppliers.current_payable` atomically.
 
+As implemented in Milestone 2:
+
+- Money paid with the bill is stored as a `supplier_payments` row linked to that
+  purchase, so the cash-drawer figures of Milestone 4 will include it. Paying off
+  a bill later (a payment not entered with the bill) is Milestone 4.
+- An opening payable is a purchase with no lines and `supplier_memo_no =
+  'OPENING BALANCE'`; one per supplier.
+- The supplier row is locked first (`SELECT … FOR UPDATE`), then products in
+  ascending id, so simultaneous bills queue instead of deadlocking.
+- The schema has no status column on `purchases`, so a saved bill cannot be
+  edited or voided. A wrong bill is corrected with a stock adjustment; a proper
+  purchase void/return needs a schema change and is not yet planned.
+- `purchases`, stock-in and adjustments have no idempotency key in the schema.
+  The forms disable their Save button while saving; a duplicate caused by a
+  network retry is not prevented by the database, unlike sales and payments.
+
 ### 5.5 Customer advance balances (Wallets)
 
 1. When a customer deposits money or overpays, `customers.advance_balance` increases.

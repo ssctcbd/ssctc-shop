@@ -2,12 +2,18 @@
 
 import { useId } from 'react';
 
-export function Field({ label, error, hint, ...input }) {
+/**
+ * A labelled form control. `as` picks the element: "input" (default),
+ * "select" (options as children) or "textarea".
+ */
+export function Field({ label, error, hint, as: Element = 'input', children, ...control }) {
   const id = useId();
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
-      <input id={id} aria-invalid={error ? 'true' : undefined} aria-describedby={error || hint ? `${id}-msg` : undefined} {...input} />
+      <Element id={id} aria-invalid={error ? 'true' : undefined} aria-describedby={error || hint ? `${id}-msg` : undefined} {...control}>
+        {children}
+      </Element>
       {(error || hint) && (
         <p id={`${id}-msg`} className={error ? 'field-error' : 'field-hint'}>
           {error || hint}
@@ -17,9 +23,22 @@ export function Field({ label, error, hint, ...input }) {
   );
 }
 
-export function SubmitButton({ busy, children, busyText = 'Please wait…' }) {
+export function Checkbox({ label, hint, ...input }) {
+  const id = useId();
   return (
-    <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+    <div className="check">
+      <input id={id} type="checkbox" {...input} />
+      <label htmlFor={id}>
+        {label}
+        {hint && <small>{hint}</small>}
+      </label>
+    </div>
+  );
+}
+
+export function SubmitButton({ busy, children, busyText = 'Please wait…', block = true }) {
+  return (
+    <button type="submit" className={`btn btn-primary${block ? ' btn-block' : ''}`} disabled={busy}>
       {busy ? busyText : children}
     </button>
   );

@@ -7,6 +7,19 @@ const { newToken, hashToken, newPin, hashSecret, verifySecret } = require('../sr
 const { loginSchema, changePasswordSchema } = require('../src/modules/auth/schemas');
 const { changePinSchema } = require('../src/modules/portal/schemas');
 
+test('money is converted to whole paisa and back without floating-point drift', () => {
+  const { toPaisa, fromPaisa, isMoney } = require('../src/lib/money');
+  assert.equal(toPaisa('460.50'), 46050);
+  assert.equal(toPaisa('460.5'), 46050);
+  assert.equal(toPaisa('0'), 0);
+  assert.equal(fromPaisa(46050 * 10 + 23000 * 4), '5525.00');
+  assert.equal(fromPaisa(toPaisa('0.10') + toPaisa('0.20')), '0.30'); // 0.1 + 0.2 in floats is 0.30000000000000004
+  assert.equal(fromPaisa(5), '0.05');
+  for (const bad of ['12.345', '-1', 'abc', '', '1e3', '1,000', ' 5']) assert.equal(isMoney(bad), false, bad);
+  assert.throws(() => toPaisa('12.345'));
+  assert.throws(() => fromPaisa(-1));
+});
+
 test('normalizePhone accepts the common ways a Bangladeshi mobile is written', () => {
   assert.equal(normalizePhone('01712345678'), '01712345678');
   assert.equal(normalizePhone('+880 1712-345678'), '01712345678');
