@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSCTC Shop — Plan Preview</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1c2330; --muted: #5d6778; --line: #dfe3ea;
+    --brand: #1f5fbf; --brand-soft: #e6eefb; --ok: #1a7f4b; --ok-soft: #e3f4ea;
+    --warn: #a35c00; --warn-soft: #fdf0d9; --bad: #b3261e; --bad-soft: #fbe6e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161d; --card: #1b212b; --ink: #e8ecf2; --muted: #9aa5b6; --line: #2c3442;
+      --brand: #7fb0ff; --brand-soft: #1d2c45; --ok: #6fd39b; --ok-soft: #173326;
+      --warn: #f2b65a; --warn-soft: #3a2c12; --bad: #ff8f86; --bad-soft: #3d1c1a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.55 "Segoe UI", system-ui, -apple-system, Arial, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  header h1 { margin: 0 0 4px; font-size: 1.9rem; }
+  header p { margin: 0; color: var(--muted); }
+  h2 { margin: 40px 0 12px; font-size: 1.25rem; }
+  h3 { margin: 0 0 6px; font-size: 1rem; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .small { font-size: .875rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .grid { display: grid; gap: 12px; }
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .g5 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+  .p-ok { background: var(--ok-soft); color: var(--ok); }
+  .p-warn { background: var(--warn-soft); color: var(--warn); }
+  .p-bad { background: var(--bad-soft); color: var(--bad); }
+  .p-brand { background: var(--brand-soft); color: var(--brand); }
+  .status { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  ul { margin: 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .removed li { text-decoration: line-through; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+  .mock { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
+  .mock-bar { background: var(--brand); color: #fff; padding: 8px 14px; font-weight: 600; font-size: .9rem;
+              display: flex; justify-content: space-between; gap: 8px; }
+  @media (prefers-color-scheme: dark) { .mock-bar { color: #0d1420; } }
+  .mock-body { padding: 14px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .kpi { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .kpi b { display: block; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: .8rem; }
+  .totals { margin-top: 10px; margin-left: auto; max-width: 300px; }
+  .totals div { display: flex; justify-content: space-between; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .totals .big { font-weight: 700; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 7px; }
+  .due { color: var(--bad); }
+  .note { border-left: 4px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; }
+  .steps { display: grid; gap: 8px; }
+  .step { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center;
+          background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .step .n { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+             background: var(--brand-soft); color: var(--brand); font-weight: 700; }
+  .step.next { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+  .step .t { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+  code { background: var(--brand-soft); color: var(--brand); padding: 1px 6px; border-radius: 4px; font-size: .88em; }
+  .arch { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .arch .card { text-align: center; }
+  footer { margin-top: 40px; color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>SSCTC Shop</h1>
+  <p>Computer shop er internal management system — ekhon porjonto ki kora hoyeche tar ek nojore chobi</p>
+  <div class="status">
+    <span class="pill p-warn">Plan ready — tomar approval er opekkhay</span>
+    <span class="pill p-brand">Kono application code ekhono lekha hoyni</span>
+    <span class="pill p-bad">Payment gateway: bad</span>
+  </div>
+</header>
+
+<h2>1. Ekhon porjonto ki toiri hoyeche</h2>
+<div class="grid g3">
+  <div class="card"><h3>PROJECT_PLAN.md</h3><p class="small muted">Ki ki feature thakbe, payment ar baki r niyom, security, kaj er dhap ar shomoy.</p></div>
+  <div class="card"><h3>DATABASE_SCHEMA.md</h3><p class="small muted">Database er shob table, ar stock/baki/payment er hishab jeno kokhono bhul na hoy tar niyom.</p></div>
+  <div class="card"><h3>DEPLOYMENT_PLAN.md</h3><p class="small muted">Hosting e cholbe ki na tar 19 ta test, deploy er dhap, backup.</p></div>
+</div>
+<p class="small muted" style="margin-top:10px">Purono plan (public shop + online order) muche fela hoyni — <code>docs/archive/</code> folder e rakha ache.</p>
+
+<h2>2. Scope ki bodleche</h2>
+<div class="grid g2">
+  <div class="card">
+    <h3><span class="pill p-bad">Bad gelo</span></h3>
+    <ul class="removed">
+      <li>Payment gateway (SSLCOMMERZ, bKash/Nagad API)</li>
+      <li>Public website ar product catalog</li>
+      <li>Online print order ar file upload</li>
+      <li>Cart, checkout, delivery</li>
+      <li>Customer login</li>
+      <li>Email / SMS notification</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3><span class="pill p-ok">Ekhon ja hobe</span></h3>
+    <ul>
+      <li>Shudhu shop er lok login korbe (admin-only)</li>
+      <li>Counter e bikri entry (POS)</li>
+      <li>Customer er baki, partial payment, due collection</li>
+      <li>Shob payment hate entry: Cash, bKash, Nagad, Bank, Other</li>
+      <li>Stock ar stock er itihash</li>
+      <li>Invoice, receipt, report</li>
+    </ul>
+  </div>
+</div>
+
+<h2>3. Module gula</h2>
+<div class="grid g5">
+  <div class="card"><h3>Dashboard</h3><p class="small muted">Ajker bikri, mot baki, low stock</p></div>
+  <div class="card"><h3>Sales / POS</h3><p class="small muted">Product ar service bikri</p></div>
+  <div class="card"><h3>Customers</h3><p class="small muted">Naam, mobile, itihash</p></div>
+  <div class="card"><h3>Due</h3><p class="small muted">Ke koto baki, collection</p></div>
+  <div class="card"><h3>Products</h3><p class="small muted">Product, category, service rate</p></div>
+  <div class="card"><h3>Inventory</h3><p class="small muted">Stock in, adjustment</p></div>
+  <div class="card"><h3>Stock history</h3><p class="small muted">Protita poriborton er record</p></div>
+  <div class="card"><h3>Payments</h3><p class="small muted">History, verify / unverify</p></div>
+  <div class="card"><h3>Invoice / Receipt</h3><p class="small muted">Print kora jabe</p></div>
+  <div class="card"><h3>Reports</h3><p class="small muted">Daily, monthly, custom date</p></div>
+</div>
+
+<h2>4. Screen gula dekhte kemon hote pare</h2>
+<p class="note small">Nicher gula shudhu <b>namuna chobi</b> — ashol app na, button kaj kore na, ar shob naam o taka r onko banano. Final design alada hote pare.</p>
+
+<div class="grid g2" style="margin-top:12px">
+  <div class="mock">
+    <div class="mock-bar"><span>Dashboard</span><span>namuna</span></div>
+    <div class="mock-body">
+      <div class="kpis">
+        <div class="kpi"><b>৳ 8,450</b><span>Ajker bikri</span></div>
+        <div class="kpi"><b>৳ 6,900</b><span>Ajke hate esheche</span></div>
+        <div class="kpi"><b class="due">৳ 23,750</b><span>Mot baki</span></div>
+        <div class="kpi"><b>2</b><span>Verify baki payment</span></div>
+      </div>
+      <h3 class="small">Low stock</h3>
+      <div class="scroll"><table>
+        <tr><th>Product</th><th class="num">Ache</th><th class="num">Shimana</th></tr>
+        <tr><td>A4 Paper 80gsm (rim)</td><td class="num">3</td><td class="num">10</td></tr>
+        <tr><td>USB Mouse</td><td class="num">1</td><td class="num">5</td></tr>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="mock">
+    <div class="mock-bar"><span>Notun bikri (POS)</span><span>namuna</span></div>
+    <div class="mock-body">
+      <p class="small muted">Customer: <b style="color:var(--ink)">Rahim Uddin · 017XXXXXXXX</b></p>
+      <div class="scroll"><table>
+        <tr><th>Item</th><th class="num">Dor</th><th class="num">Poriman</th><th class="num">Mot</th></tr>
+        <tr><td>Photocopy A4 B/W <span class="pill p-brand">service</span></td><td class="num">2.00</td><td class="num">40</td><td class="num">80.00</td></tr>
+        <tr><td>Pendrive 32GB</td><td class="num">450.00</td><td class="num">1</td><td class="num">450.00</td></tr>
+        <tr><td>Online application <span class="pill p-brand">service</span></td><td class="num">100.00</td><td class="num">1</td><td class="num">100.00</td></tr>
+      </table></div>
+      <div class="totals">
+        <div><span>Mot</span><span>৳ 630.00</span></div>
+        <div><span>Cash paoa gelo</span><span>৳ 400.00</span></div>
+        <div class="big due"><span>Baki</span><span>৳ 230.00</span></div>
+      </div>
+      <p class="small muted" style="margin-top:8px">Save korle Pendrive er stock 1 kombe ar Rahim er baki 230 barbe.</p>
+    </div>
+  </div>
+</div>
+
+<div class="mock" style="margin-top:12px">
+  <div class="mock-bar"><span>Payment history</span><span>namuna</span></div>
+  <div class="mock-body scroll">
+    <table>
+      <tr><th>Receipt</th><th>Tarikh</th><th>Customer</th><th>Method</th><th>Reference</th><th class="num">Taka</th><th>Obostha</th></tr>
+      <tr><td>RCP-000041</td><td>10 Oct</td><td>Rahim Uddin</td><td>Cash</td><td>—</td><td class="num">400.00</td><td><span class="pill p-ok">Verified</span></td></tr>
+      <tr><td>RCP-000042</td><td>10 Oct</td><td>Karim Store</td><td>bKash</td><td>9XK2ABCD41</td><td class="num">1,500.00</td><td><span class="pill p-warn">Unverified</span></td></tr>
+      <tr><td>RCP-000043</td><td>10 Oct</td><td>Salma Begum</td><td>Bank Transfer</td><td>REF-55821</td><td class="num">3,000.00</td><td><span class="pill p-ok">Verified</span></td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>5. Payment ar baki r niyom</h2>
+<div class="grid g2">
+  <div class="card">
+    <h3>Transaction ID dilei payment "hoye geche" dhora hobe na</h3>
+    <p class="small muted">Cash hate pele shathe shathe verified. bKash, Nagad, Bank ar Other age <b>unverified</b> thakbe, jotokkhon na keu taka asheche dekhe verify kore.</p>
+    <p class="small muted">Default niyom: shudhu verified payment e baki kombe. Unverified taka alada kore "verify er opekkhay" dekhabe.</p>
+  </div>
+  <div class="card">
+    <h3>Ekta payment koyekta purono bill e bhag hote pare</h3>
+    <p class="small muted">Jemon: customer 1,000 taka dilo. 600 diye ekta purono bill shesh, baki 400 arekta bill e gelo. System shobcheye purono bill age dhorbe, tumi chaile bodlate parbe.</p>
+    <p class="small muted">Kono bikri ba payment mocha jabe na — bhul hole karon likhe "void" korte hobe, itihash theke jabe.</p>
+  </div>
+</div>
+
+<h2>6. Kivabe cholbe</h2>
+<div class="arch">
+  <div class="card"><h3>Screen</h3><p class="small muted">Next.js / React<br>Browser e khulbe: shop er PC ba phone</p></div>
+  <div class="card"><h3>API</h3><p class="small muted">Node.js + Express<br>Hishab ar permission ekhane</p></div>
+  <div class="card"><h3>Database</h3><p class="small muted">MySQL 8.0.46<br>Tomar cPanel hosting e</p></div>
+</div>
+<p class="small muted" style="margin-top:10px">Thikana: <code>shop.sscomputertrainingcentre.com</code> — login chara kichu dekha jabe na. Internet ba hosting bondho thakle bikri khatay likhe pore entry korte hobe.</p>
+
+<h2>7. Kaj er dhap</h2>
+<div class="steps">
+  <div class="step next"><div class="n">0</div><div><b>Hosting verification</b> <span class="pill p-brand">porer dhap</span><div class="small muted">Tomar hosting e Node.js thik moto chole ki na, 19 ta test</div></div><div class="t">2–3 din</div></div>
+  <div class="step"><div class="n">1</div><div><b>Foundation</b><div class="small muted">Database, login, Owner / Staff role</div></div><div class="t">1–1.5 shoptaho</div></div>
+  <div class="step"><div class="n">2</div><div><b>Product, service, stock</b><div class="small muted">Stock in, adjustment, itihash, low stock</div></div><div class="t">1–1.5 shoptaho</div></div>
+  <div class="step"><div class="n">3</div><div><b>Customer ar bikri (POS)</b><div class="small muted">Bikri, void, invoice print</div></div><div class="t">1.5–2 shoptaho</div></div>
+  <div class="step"><div class="n">4</div><div><b>Payment ar baki</b><div class="small muted">Partial payment, due collection, verify, receipt</div></div><div class="t">1.5–2 shoptaho</div></div>
+  <div class="step"><div class="n">5</div><div><b>Dashboard ar report</b><div class="small muted">Daily, monthly, custom date, CSV</div></div><div class="t">1 shoptaho</div></div>
+  <div class="step"><div class="n">6</div><div><b>Launch</b><div class="small muted">Backup, ashol product ar purono baki entry</div></div><div class="t">0.5–1 shoptaho</div></div>
+</div>
+<p class="small muted" style="margin-top:10px">Mot andaj 6–9 shoptaho. Eta provisional — Milestone 0 er folafol er upor bodlate pare.</p>
+
+<h2>8. Tomar kach theke ja jana dorkar</h2>
+<div class="grid g3">
+  <div class="card"><h3>1. Unverified payment</h3><p class="small muted">bKash pathiyeche bolle kintu check hoyni — baki khola thakbe (default), na shathe shathe kome jabe?</p></div>
+  <div class="card"><h3>2. Ke use korbe</h3><p class="small muted">Tumi chara ar keu? Default: Staff bikri ar payment entry korbe; verify, void, dam bodol shudhu Owner.</p></div>
+  <div class="card"><h3>3. Purono baki</h3><p class="small muted">System chalu r shomoy customer der ager baki entry korte hobe? Andaj koto jon?</p></div>
+</div>
+
+<footer>SSCTC Shop · plan preview · 2026-10-10 · bistarito: PROJECT_PLAN.md, DATABASE_SCHEMA.md, DEPLOYMENT_PLAN.md</footer>
+
+</div>
+</body>
+</html>
