@@ -8,7 +8,7 @@ const MILESTONES = [
   ['Foundation: login, roles, database', 'Ready'],
   ['Products, services, inventory, suppliers, purchases', 'Ready'],
   ['Customers, POS, sales, returns, invoices with QR, customer portal', 'Ready'],
-  ['Payments, dues, expenses, cash closing', 'Milestone 4'],
+  ['Due collection, payments, supplier payments, expenses, cash closing', 'Ready'],
   ['Dashboard figures and reports', 'Milestone 5'],
 ];
 

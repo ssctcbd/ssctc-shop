@@ -9,7 +9,8 @@ const { normalizePhone } = require('../../lib/phone');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { recalculateCustomer } = require('../../lib/ledger');
 const { applyAdvanceMovement } = require('../../lib/advance');
-const { toPaisa } = require('../../lib/money');
+const { lockCashDrawer } = require('../../lib/cash');
+const { toPaisa, fromPaisa } = require('../../lib/money');
 const { documentDate } = require('../../lib/dates');
 const { conflict, notFound, badRequest } = require('../../lib/errors');
 const { z, positiveMoney, optionalText, optionalTextUpdate, requiredText, flag, day, queryFlag, paging } = require('../../lib/schemas');
@@ -93,6 +94,34 @@ router.get('/customers', staffWith('customers.view'), validateQuery(listSchema),
   res.json({ items: rows.map(toApi), page, pageSize, total: Number(totals.total), totalDue: totals.due });
 });
 
+// Everyone who owes the shop, biggest balance first.
+router.get('/dues', staffWith('customers.view'), validateQuery(z.strictObject({ search: z.string().trim().max(100).optional(), ...paging })), async (req, res) => {
+  const { search, page, pageSize } = req.q;
+  const where = ['c.current_due > 0'];
+  const params = [];
+  if (search) {
+    where.push('(c.name LIKE ? OR c.phone LIKE ?)');
+    params.push(likePattern(search), likePattern(search));
+  }
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+  const [totals] = await query(`SELECT COUNT(*) AS total, COALESCE(SUM(c.current_due), 0) AS due FROM customers c ${whereSql}`, params);
+  const rows = await query(
+    `SELECT c.id, c.name, c.phone, c.current_due, c.advance_balance, o.unpaid_sales, o.oldest_sale_date, o.unverified
+       FROM customers c
+       JOIN (SELECT customer_id, COUNT(*) AS unpaid_sales, MIN(sale_date) AS oldest_sale_date, SUM(unverified_amount) AS unverified
+               FROM sales WHERE status = 'completed' AND due_amount > 0 GROUP BY customer_id) o ON o.customer_id = c.id
+      ${whereSql} ORDER BY c.current_due DESC, c.id LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
+    params,
+  );
+  res.json({
+    items: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, currentDue: r.current_due, advanceBalance: r.advance_balance, unpaidSales: Number(r.unpaid_sales), oldestSaleDate: r.oldest_sale_date, unverifiedAmount: r.unverified })),
+    page,
+    pageSize,
+    total: Number(totals.total),
+    totalDue: totals.due,
+  });
+});
+
 // Compact list for the POS customer picker.
 router.get('/customers/options', staffWith('customers.view'), async (_req, res) => {
   const rows = await query('SELECT id, name, phone, current_due, advance_balance FROM customers WHERE is_active = 1 ORDER BY name, id');
@@ -126,6 +155,30 @@ router.get('/customers/:id', staffWith('customers.view'), idParam, async (req, r
       unverifiedAmount: s.unverified_amount,
       dueAmount: s.due_amount,
       paymentStatus: s.payment_status,
+    })),
+  });
+});
+
+// One customer's bills with something still owed, oldest first: what a due
+// collection can be applied to. "Collectable" leaves out money already claimed
+// by a payment that is waiting to be verified.
+router.get('/customers/:id/open-sales', staffWith('customers.view'), idParam, async (req, res) => {
+  const rows = await query(
+    `SELECT id, invoice_no, sale_type, sale_date, total_amount, paid_amount, unverified_amount, due_amount
+       FROM sales WHERE customer_id = ? AND status = 'completed' AND due_amount > 0 ORDER BY sale_date, id`,
+    [req.id],
+  );
+  res.json({
+    sales: rows.map((s) => ({
+      id: s.id,
+      invoiceNo: s.invoice_no,
+      saleType: s.sale_type,
+      saleDate: s.sale_date,
+      totalAmount: s.total_amount,
+      paidAmount: s.paid_amount,
+      unverifiedAmount: s.unverified_amount,
+      dueAmount: s.due_amount,
+      collectableAmount: fromPaisa(Math.max(0, toPaisa(s.due_amount) - toPaisa(s.unverified_amount))),
     })),
   });
 });
@@ -297,6 +350,7 @@ router.post('/customers/:id/advance-deposit', staffWith('payments.create'), idPa
 
   try {
     await transaction(async (conn) => {
+      await lockCashDrawer(conn);
       const [rows] = await conn.execute('SELECT is_active FROM customers WHERE id = ? FOR UPDATE', [req.id]);
       if (!rows[0]) throw notFound('Customer not found.');
       if (!rows[0].is_active) throw conflict('This customer is inactive.');
@@ -309,6 +363,40 @@ router.post('/customers/:id/advance-deposit', staffWith('payments.create'), idPa
   }
   const saved = await receipt();
   res.status(201).json({ deposit: shape(saved) });
+});
+
+const refundSchema = z.strictObject({
+  idempotencyKey: z.string().uuid('Not a valid key.'),
+  amount: positiveMoney,
+  note: optionalText(255),
+});
+
+/**
+ * Give advance money back to the customer, in cash from the drawer. It is the
+ * shop paying money out, so it needs the same permission as voiding a payment.
+ */
+router.post('/customers/:id/advance-refund', staffWith('payments.void'), idParam, validateBody(refundSchema), async (req, res) => {
+  const b = req.body;
+  const receipt = async () => (await query('SELECT receipt_no, amount, balance_after FROM customer_advance_movements WHERE idempotency_key = ?', [b.idempotencyKey]))[0];
+  const shape = (row) => ({ receiptNo: row.receipt_no, amount: fromPaisa(toPaisa(String(row.amount).replace('-', ''))), balanceAfter: row.balance_after });
+
+  const existing = await receipt();
+  if (existing) return res.status(200).json({ refund: shape(existing), duplicate: true });
+
+  try {
+    await transaction(async (conn) => {
+      await lockCashDrawer(conn);
+      const [rows] = await conn.execute('SELECT id FROM customers WHERE id = ? FOR UPDATE', [req.id]);
+      if (!rows[0]) throw notFound('Customer not found.');
+      const receiptNo = await nextDocumentNumber(conn, 'receipt');
+      // Refused if the balance does not cover it.
+      const moved = await applyAdvanceMovement(conn, { customerId: req.id, deltaPaisa: -toPaisa(b.amount), movementType: 'refund', method: 'cash', receiptNo, note: b.note, idempotencyKey: b.idempotencyKey, userId: req.user.id });
+      await writeAudit({ conn, actorUserId: req.user.id, action: 'customer.advance_refund', entityType: 'customer', entityId: req.id, newValues: { receiptNo, amount: b.amount, balanceAfter: moved.balanceAfter, note: b.note }, ip: req.ip });
+    });
+  } catch (err) {
+    if (!(err.code === 'ER_DUP_ENTRY' && String(err.message).includes('uq_advance_idempotency'))) throw err;
+  }
+  res.status(201).json({ refund: shape(await receipt()) });
 });
 
 router.get('/customers/:id/advance', staffWith('customers.view'), idParam, async (req, res) => {

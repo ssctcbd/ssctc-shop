@@ -47,7 +47,7 @@ it('migration creates every table in DATABASE_SCHEMA.md', async () => {
     'audit_logs', 'categories', 'customer_advance_movements', 'customer_sessions', 'customers', 'daily_cash_closings', 'document_counters',
     'expense_categories', 'expenses', 'inventory_movements', 'login_attempts', 'payment_allocations', 'payments',
     'products', 'purchase_items', 'purchases', 'role_permissions', 'roles', 'sale_items', 'sale_return_items',
-    'sale_returns', 'sales', 'services', 'sessions', 'settings', 'supplier_payments', 'suppliers', 'users',
+    'sale_returns', 'sales', 'services', 'sessions', 'settings', 'supplier_payment_allocations', 'supplier_payments', 'suppliers', 'users',
   ]);
 });
 
@@ -64,7 +64,7 @@ it('seed is repeatable and loads roles, settings, categories and counters', asyn
   const [cats] = await db.query('SELECT COUNT(*) AS n FROM expense_categories');
   assert.equal(roles.n, 2);
   assert.equal(settings.n, 14);
-  assert.equal(counters.n, 6);
+  assert.equal(counters.n, 7); // six document types and the cash drawer lock row
   assert.equal(cats.n, 7);
 });
 

@@ -8,7 +8,7 @@ import { useCustomer } from '@/lib/session';
 import { useFetch } from '@/lib/useFetch';
 
 const PORTAL = { loginPath: '/portal/login/' };
-const ADVANCE_TYPES = { deposit: 'Deposit', sale_payment: 'Spent on a bill', payment_void: 'Returned to balance', return_credit: 'Credit for returned goods' };
+const ADVANCE_TYPES = { deposit: 'Deposit', sale_payment: 'Spent on a bill', payment_void: 'Returned to balance', return_credit: 'Credit for returned goods', refund: 'Paid back to you in cash' };
 const DAY_MS = 24 * 3600 * 1000;
 
 /**

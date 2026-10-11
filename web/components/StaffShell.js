@@ -18,8 +18,8 @@ const NAV = [
       { label: 'POS / New sale', href: '/pos/', permission: 'sales.create' },
       { label: 'Sales', href: '/sales/', permission: 'sales.view' },
       { label: 'Customers', href: '/customers/', permission: 'customers.view' },
-      { label: 'Dues', milestone: 4, permission: 'customers.view' },
-      { label: 'Payments', milestone: 4, permission: 'payments.view' },
+      { label: 'Dues', href: '/dues/', permission: 'customers.view' },
+      { label: 'Payments', href: '/payments/', permission: 'payments.view' },
     ],
   },
   {
@@ -36,8 +36,8 @@ const NAV = [
   {
     group: 'Money',
     items: [
-      { label: 'Expenses', milestone: 4, permission: 'expenses.view' },
-      { label: 'Cash closing', milestone: 4, permission: 'cash.view' },
+      { label: 'Expenses', href: '/expenses/', permission: 'expenses.view' },
+      { label: 'Cash closing', href: '/cash/', permission: 'cash.view' },
       { label: 'Reports', milestone: 5, permission: 'reports.view' },
     ],
   },

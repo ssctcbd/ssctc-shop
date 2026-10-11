@@ -3,9 +3,9 @@
 Internal shop management system for a computer shop that also provides printing,
 photocopying and online services. Used by the shop's own staff only.
 
-Status: **Milestones 1, 2 and 3 built and tested locally; nothing after Milestone 1 is deployed. Milestone 0 (hosting verification) is partly done.** Milestone 3 now includes sale returns, the QR code on invoices, bills in the customer portal and the customer advance balance (migration 003).
+Status: **Milestones 1 to 4 built and tested locally; nothing after Milestone 1 is deployed. Milestone 0 (hosting verification) is partly done.** Milestone 4 adds due collection, the payments list and receipts, supplier payments, expenses and cash closing (migration 004).
 
-Not built, and belonging to Milestone 4: collecting a due after the sale, the payments list, paying an advance back out in cash, supplier payments, expenses and cash closing. Provisional defaults in use until the owner decides otherwise: D2 (only verified payments reduce a due), D3 (a due needs a saved customer), D4 (Staff sells and records payments; only the Owner verifies, voids, edits prices and back-dates). Any seller may give a sale-level discount; it is recorded in the audit log.
+Not built: the dashboard figures and reports (Milestone 5), the printable customer statement, the Users and Settings screens. Decisions taken while building Milestone 4, open to change: a collection can never exceed what is owed (extra money is a deliberate advance deposit); paying an advance back, voiding an expense and voiding a supplier payment are Owner-only; Staff records expenses for today only; a cash closing covers everything recorded since the previous closing and cannot be edited. Provisional defaults in use until the owner decides otherwise: D2 (only verified payments reduce a due), D3 (a due needs a saved customer), D4 (Staff sells and records payments; only the Owner verifies, voids, edits prices and back-dates). Any seller may give a sale-level discount; it is recorded in the audit log.
 Last revised: 2026-10-10 (scope update: internal management system; see §2)
 
 Companion documents:

@@ -69,4 +69,5 @@ INSERT IGNORE INTO expense_categories (name) VALUES
 
 INSERT IGNORE INTO document_counters (doc_type, last_number) VALUES
   ('invoice', 0), ('receipt', 0), ('purchase', 0),
-  ('supplier_payment', 0), ('expense', 0), ('return', 0);
+  ('supplier_payment', 0), ('expense', 0), ('return', 0),
+  ('cash_drawer', 0); -- not a number: the row every cash transaction locks

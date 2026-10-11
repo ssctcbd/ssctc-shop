@@ -37,8 +37,18 @@ Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEM
 - QR code on every invoice that opens that one bill without logging in.
 - Customer portal: own bills, payment receipts, warranties with days left, advance history. Read-only.
 
-Still to come: due collection, payments list, expenses and cash closing
-(Milestone 4), dashboard figures and reports (5).
+## What exists (Milestone 4 — Payments, dues, expenses, cash closing)
+
+- Due list and due collection: one payment spread over several bills, oldest first or chosen by hand; a receipt for every payment.
+- Payments list with filters; verify, unverify and void from the list.
+- Paying an advance balance back to the customer in cash.
+- Supplier payments against one bill or oldest first, with void; a bill can be voided once its payments are.
+- Expenses with categories and vouchers; a wrong entry is voided, never deleted.
+- Cash closing: the cash that should be in the drawer against what is counted, the difference recorded with a note, and the cash left in carried to the next day.
+- Screens: Dues, Payments, Receipt, Expenses, Cash closing; Pay and Payments on Suppliers.
+
+Still to come: dashboard figures and reports (Milestone 5), users and settings
+screens, backups and launch (6).
 
 To package a release for cPanel: `powershell -File scripts\package-release.ps1`,
 then follow DEPLOYMENT_PLAN.md §9.
@@ -93,5 +103,6 @@ Without a reachable server those tests are skipped and only unit tests run.
 
 Not done yet. Follow [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md): the hosting checks in
 §2 come first. `web/out` is what gets uploaded for the site; `api/` (without
-`node_modules` and `.env`) is the Node.js application. `api/migrations/001_initial_schema.sql`
-and `api/seeds/001_base_data.sql` can also be run directly in phpMyAdmin.
+`node_modules` and `.env`) is the Node.js application. The files in `api/migrations/`
+(in number order, 001 to 004) and `api/seeds/001_base_data.sql` can also be run
+directly in phpMyAdmin.

@@ -5,6 +5,8 @@ const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { applyStockMovement } = require('../../lib/stock');
 const { nextDocumentNumber } = require('../../lib/documents');
+const { lockCashDrawer } = require('../../lib/cash');
+const { recalculatePurchase, recalculatePayable } = require('../../lib/payables');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, documentDate } = require('../../lib/dates');
 const { notFound, badRequest, conflict } = require('../../lib/errors');
@@ -50,15 +52,6 @@ const supplierToApi = (row) => ({
   currentPayable: row.current_payable,
   isActive: Boolean(row.is_active),
 });
-
-/**
- * suppliers.current_payable is derived, never typed in: the sum of what is
- * still owed on that supplier's purchases (DATABASE_SCHEMA.md §5.4). Called
- * inside every transaction that changes a purchase.
- */
-async function recalculatePayable(conn, supplierId) {
-  await conn.execute("UPDATE suppliers SET current_payable = (SELECT COALESCE(SUM(due_amount), 0) FROM purchases WHERE supplier_id = ? AND status = 'active') WHERE id = ?", [supplierId, supplierId]);
-}
 
 /** Lock the supplier row first; every purchase transaction starts here, so they queue instead of deadlocking. */
 async function lockSupplier(conn, supplierId, field = 'supplierId') {
@@ -234,12 +227,17 @@ router.get('/purchases/:id', staffWith('suppliers.view'), idParam, async (req, r
       WHERE pi.purchase_id = ? ORDER BY pi.id`,
     [req.id],
   );
-  const payments = await query('SELECT voucher_no, payment_date, amount, method, reference FROM supplier_payments WHERE purchase_id = ? ORDER BY id', [req.id]);
+  const payments = await query(
+    `SELECT p.id, p.voucher_no, p.payment_date, a.amount, p.method, p.reference, p.status
+       FROM supplier_payment_allocations a JOIN supplier_payments p ON p.id = a.payment_id
+      WHERE a.purchase_id = ? ORDER BY p.id`,
+    [req.id],
+  );
   res.json({
     purchase: {
       ...purchaseToApi(rows[0]),
       items: items.map((i) => ({ id: i.id, productId: i.product_id, sku: i.sku, name: i.name, unit: i.unit, quantity: i.quantity, unitCost: i.unit_cost, lineTotal: i.line_total })),
-      payments: payments.map((p) => ({ voucherNo: p.voucher_no, paymentDate: p.payment_date, amount: p.amount, method: p.method, reference: p.reference })),
+      payments: payments.map((p) => ({ id: p.id, voucherNo: p.voucher_no, paymentDate: p.payment_date, amount: p.amount, method: p.method, reference: p.reference, status: p.status })),
     },
   });
 });
@@ -286,6 +284,7 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
   res.status(201).json({ purchase });
 
   async function createPurchase(conn) {
+    await lockCashDrawer(conn);
     const supplier = await lockSupplier(conn, b.supplierId);
     if (!supplier.is_active) throw fieldError('supplierId', 'This supplier is inactive.');
 
@@ -321,7 +320,7 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
 
     if (paidPaisa > 0) {
       const voucherNo = await nextDocumentNumber(conn, 'supplier_payment');
-      await conn.execute('INSERT INTO supplier_payments (voucher_no, supplier_id, purchase_id, payment_date, amount, method, reference, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
+      const [payment] = await conn.execute('INSERT INTO supplier_payments (voucher_no, supplier_id, purchase_id, payment_date, amount, method, reference, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
         voucherNo,
         b.supplierId,
         purchaseId,
@@ -331,6 +330,8 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
         b.paymentReference,
         req.user.id,
       ]);
+      await conn.execute('INSERT INTO supplier_payment_allocations (payment_id, purchase_id, amount) VALUES (?, ?, ?)', [payment.insertId, purchaseId, fromPaisa(paidPaisa)]);
+      await recalculatePurchase(conn, purchaseId);
     }
 
     await recalculatePayable(conn, b.supplierId);
@@ -357,8 +358,8 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
  * Refused when
  *  - the bill is already void (the conditional UPDATE lets it happen only once);
  *  - it is an opening payable;
- *  - money was paid with it: supplier payments cannot be voided yet, and a
- *    payment must never be left attached to a bill that no longer counts;
+ *  - a payment is recorded against it: void that payment first, so money is
+ *    never left attached to a bill that no longer counts;
  *  - any of its products has since been sold or adjusted below the quantity on
  *    the bill, because stock cannot go negative.
  * A product's cost price goes back to the cost of its latest remaining stock
@@ -380,7 +381,7 @@ router.post('/purchases/:id/void', staffWith('purchases.manage'), idParam, valid
     const [items] = await conn.execute('SELECT product_id, quantity, unit_cost FROM purchase_items WHERE purchase_id = ? ORDER BY product_id', [req.id]);
     if (items.length === 0 && purchase.supplier_memo_no === OPENING_MEMO) throw conflict('An opening payable cannot be voided.');
     if (toPaisa(purchase.paid_amount) > 0) {
-      throw conflict(`${purchase.purchase_no} has a payment of ${purchase.paid_amount} recorded with it, so it cannot be voided. Supplier payments cannot be reversed yet.`);
+      throw conflict(`${purchase.purchase_no} has ${purchase.paid_amount} paid against it, so it cannot be voided. Void the payment first.`);
     }
 
     for (const item of items) {
@@ -430,3 +431,4 @@ router.post('/purchases/:id/void', staffWith('purchases.manage'), idParam, valid
 });
 
 module.exports = router;
+module.exports.lockSupplier = lockSupplier;

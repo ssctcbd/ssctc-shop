@@ -8,6 +8,7 @@ const { applyStockMovement } = require('../../lib/stock');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { recalculateSale, recalculateCustomer } = require('../../lib/ledger');
 const { applyAdvanceMovement } = require('../../lib/advance');
+const { lockCashDrawer } = require('../../lib/cash');
 const { loadSale } = require('./detail');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, documentDate, today } = require('../../lib/dates');
@@ -187,6 +188,7 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
   res.status(201).json({ sale });
 
   async function createSale(conn) {
+    await lockCashDrawer(conn);
     // --- customer -----------------------------------------------------------
     let customer = null;
     if (b.customerId) {
@@ -352,6 +354,7 @@ router.post('/sales/:id/void', staffWith('sales.void'), idParam, validateBody(vo
   const { reason, voidPayments } = req.body;
 
   await transaction(async (conn) => {
+    await lockCashDrawer(conn);
     const [found] = await conn.execute('SELECT customer_id FROM sales WHERE id = ?', [req.id]);
     if (!found[0]) throw notFound('Sale not found.');
     const customerId = found[0].customer_id;
@@ -473,6 +476,7 @@ router.post('/sales/:id/returns', staffWith('sales.return'), idParam, validateBo
   res.status(201).json({ return: result });
 
   async function createReturn(conn) {
+    await lockCashDrawer(conn);
     const [found] = await conn.execute('SELECT customer_id FROM sales WHERE id = ?', [req.id]);
     if (!found[0]) throw notFound('Sale not found.');
     const customerId = found[0].customer_id;

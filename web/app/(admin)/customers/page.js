@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import CollectDue from '@/components/CollectDue';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
 import { Checkbox, Field, Notice, SubmitButton } from '@/components/Form';
@@ -107,7 +108,7 @@ function OpeningDueForm({ customer, onDone, onCancel }) {
   );
 }
 
-const ADVANCE_TYPES = { deposit: 'Deposit', sale_payment: 'Spent on a sale', payment_void: 'Returned (payment voided)', return_credit: 'Credit for returned goods' };
+const ADVANCE_TYPES = { deposit: 'Deposit', sale_payment: 'Spent on a sale', payment_void: 'Returned (payment voided)', return_credit: 'Credit for returned goods', refund: 'Paid back in cash' };
 const DEPOSIT_METHODS = { cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', bank_transfer: 'Bank transfer', other: 'Other' };
 
 function DepositForm({ customer, canVerify, onDone, onCancel }) {
@@ -151,13 +152,45 @@ function DepositForm({ customer, canVerify, onDone, onCancel }) {
   );
 }
 
-function CustomerDetail({ id, onClose, onChanged, onEdit }) {
+function RefundAdvanceForm({ customer, onDone, onCancel }) {
+  // One key per form, so a repeated save pays the money back once.
+  const idempotencyKey = useRef(null);
+  const form = useForm({ amount: customer.advanceBalance, note: '' }, async (v) => {
+    idempotencyKey.current ||= crypto.randomUUID();
+    await api.post(`/customers/${customer.id}/advance-refund`, { idempotencyKey: idempotencyKey.current, amount: v.amount, note: v.note });
+    onDone();
+  });
+  const { values: v, fields: f, set } = form;
+  return (
+    <form onSubmit={form.onSubmit} noValidate className="inline-box">
+      <p className="muted" style={{ marginBottom: 12 }}>
+        Give {customer.name} their advance back in cash, from the cash drawer. They hold {formatMoney(customer.advanceBalance)}.
+      </p>
+      <Notice>{form.error !== 'Please check the highlighted fields.' && form.error}</Notice>
+      <div className="form-grid">
+        <Field label="Amount to pay back (৳)" inputMode="decimal" autoFocus required value={v.amount} error={f.amount} onChange={set('amount')} />
+        <Field label="Note" maxLength={255} value={v.note} error={f.note} onChange={set('note')} />
+      </div>
+      <div className="form-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>
+          Cancel
+        </button>
+        <SubmitButton busy={form.busy} block={false}>
+          Pay back
+        </SubmitButton>
+      </div>
+    </form>
+  );
+}
+
+function CustomerDetail({ id, onClose, onChanged, onEdit, onCollect }) {
   const can = useCan();
   const { data, error, reload } = useFetch(`/customers/${id}`);
   const advance = useFetch(`/customers/${id}/advance`);
   const [newPin, setNewPin] = useState('');
   const [opening, setOpening] = useState(false);
   const [depositing, setDepositing] = useState(false);
+  const [refunding, setRefunding] = useState(false);
   const movements = advance.data?.movements || [];
   const [actionError, setActionError] = useState('');
   const c = data?.customer;
@@ -214,6 +247,11 @@ function CustomerDetail({ id, onClose, onChanged, onEdit }) {
           {c.note && <p className="field-hint">Note: {c.note}</p>}
 
           <div className="page-actions" style={{ margin: '14px 0' }}>
+            {can('payments.create') && Number(c.currentDue) > 0 && (
+              <button className="btn btn-primary btn-sm" onClick={() => onCollect(c)}>
+                Collect due
+              </button>
+            )}
             {can('customers.manage') && (
               <button className="btn btn-ghost btn-sm" onClick={() => onEdit(c)}>
                 Edit
@@ -229,6 +267,11 @@ function CustomerDetail({ id, onClose, onChanged, onEdit }) {
                 Add advance
               </button>
             )}
+            {can('payments.void') && Number(c.advanceBalance) > 0 && !refunding && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setRefunding(true)}>
+                Pay advance back
+              </button>
+            )}
             {can('customers.reset_pin') && c.phone && (
               <button className="btn btn-ghost btn-sm" onClick={resetPin}>
                 Reset PIN
@@ -242,6 +285,18 @@ function CustomerDetail({ id, onClose, onChanged, onEdit }) {
               onCancel={() => setDepositing(false)}
               onDone={() => {
                 setDepositing(false);
+                reload();
+                advance.reload();
+                onChanged();
+              }}
+            />
+          )}
+          {refunding && (
+            <RefundAdvanceForm
+              customer={c}
+              onCancel={() => setRefunding(false)}
+              onDone={() => {
+                setRefunding(false);
                 reload();
                 advance.reload();
                 onChanged();
@@ -344,6 +399,7 @@ export default function CustomersPage() {
   const [searchText, setSearchText] = useState('');
   const [editing, setEditing] = useState(undefined);
   const [viewing, setViewing] = useState(null);
+  const [collecting, setCollecting] = useState(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setFilters((f) => (f.search === searchText ? f : { ...f, search: searchText, page: 1 })), 300);
@@ -400,7 +456,14 @@ export default function CustomersPage() {
                 </td>
                 <td className="nowrap">{c.phone}</td>
                 <td className="num">{Number(c.currentDue) > 0 ? <span className="qty-out">{formatMoney(c.currentDue)}</span> : formatMoney(0)}</td>
-                <td className="num">
+                <td className="num nowrap">
+                  {can('payments.create') && Number(c.currentDue) > 0 && (
+                    <>
+                      <button className="btn btn-primary btn-sm" onClick={() => setCollecting(c)}>
+                        Collect
+                      </button>{' '}
+                    </>
+                  )}
                   <button className="btn btn-ghost btn-sm" onClick={() => setViewing(c.id)}>
                     View
                   </button>
@@ -422,7 +485,7 @@ export default function CustomersPage() {
       </div>
       {data && <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={(page) => setFilters((f) => ({ ...f, page }))} />}
 
-      {viewing && editing === undefined && (
+      {viewing && editing === undefined && !collecting && (
         <CustomerDetail
           id={viewing}
           onClose={() => setViewing(null)}
@@ -430,6 +493,17 @@ export default function CustomersPage() {
           onEdit={(c) => {
             setViewing(null);
             setEditing(c);
+          }}
+          onCollect={setCollecting}
+        />
+      )}
+      {collecting && (
+        <CollectDue
+          customer={collecting}
+          onClose={() => setCollecting(null)}
+          onDone={() => {
+            setCollecting(null);
+            reload();
           }}
         />
       )}

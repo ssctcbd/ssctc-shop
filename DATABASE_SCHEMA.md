@@ -576,7 +576,16 @@ As implemented in Milestone 3:
   `payments.verify`; from anyone else the payment is stored unverified.
 - **Payments taken with a sale** get a server-made idempotency key; the sale's
   own key is what prevents a duplicate.
-- Recording a payment after the sale (due collection) is not built yet.
+- **Due collection (Milestone 4, migration 004).** `POST /payments` records a
+  payment with `kind = 'due_collection'` (payments taken with a sale are
+  `kind = 'sale'`). One transaction: lock the cash drawer → lock the customer →
+  lock their unpaid sales → split the money, as given or oldest bill first →
+  receipt number → payment and allocations → recalculate. What can be collected
+  on a sale is its due less money already claimed by an unverified payment; more
+  than that is refused, so five people collecting the same due at once produce
+  one payment. Method `customer_advance` spends the advance balance.
+- **Cash is always verified.** A cash payment cannot be unverified, only voided;
+  the cash drawer relies on that.
 
 **Isolation level.** The application's connections run at READ COMMITTED, not
 MySQL's default REPEATABLE READ. Under REPEATABLE READ a transaction's plain
@@ -676,8 +685,27 @@ As implemented in Milestone 2:
   after the bill.
 - Void is refused for an opening payable, for a bill whose products are no
   longer all in stock, and for a bill with a payment recorded. `supplier_payments`
-  has no void status yet, so a payment cannot be reversed; that belongs with
-  supplier payments in Milestone 4.
+  had no void status in Milestone 2; see below.
+
+As implemented in Milestone 4 (migration 004):
+
+```
+supplier_payments            + status ENUM('active','void'), void_reason, voided_by FK, voided_at,
+                               idempotency_key CHAR(36) UQ
+supplier_payment_allocations   payment_id FK, purchase_id FK, amount > 0, UQ (payment_id, purchase_id)
+```
+
+- A supplier payment is split across bills by `supplier_payment_allocations`,
+  exactly as `payment_allocations` does for sales. The migration gives every
+  earlier with-bill payment its allocation row.
+- `purchases.paid_amount`, `due_amount` and `payment_status` are derived:
+  paid = Σ allocations of active payments. One function writes them, and
+  `suppliers.current_payable` after it.
+- `POST /supplier-payments`: lock the cash drawer → lock supplier → lock the
+  unpaid bills → split as given or oldest bill first → voucher → payment and
+  allocations → recalculate. Never more than is owed.
+- A payment is voided, not deleted; its bills are owed again. A bill with money
+  against it still cannot be voided, but now the payment can be voided first.
 - Stock-in and adjustments still have no idempotency key; their forms disable
   the Save button while saving.
 
@@ -691,10 +719,45 @@ As implemented in Milestone 2:
 ### 5.6 Daily cash drawer reconciliation
 
 1. `daily_cash_closings` captures the physical cash counted by the owner at the end of the day.
-2. The system computes expected cash from verified cash transactions on that date:
-   `expected_closing_cash = opening_cash + cash_sales + cash_dues_collected - cash_expenses - cash_supplier_paid`.
+2. The system computes the cash that should be there, and stores every figure.
 3. `difference = actual_closing_cash - expected_closing_cash`. Any difference (shortage/surplus)
    is permanently recorded along with the user ID and closing note.
+
+As implemented in Milestone 4 (migration 004):
+
+```
+daily_cash_closings  + period_start DATETIME NULL        the previous closing's closed_at
+                     + cash_advance_deposits, cash_voids_in, cash_refunds, cash_withdrawn
+expenses             + status, void_reason, voided_by FK, voided_at, idempotency_key UQ
+customer_advance_movements.movement_type  + 'refund'     advance paid back in cash
+document_counters    + row 'cash_drawer'                 a lock, not a number
+
+expected = opening_cash
+         + cash_sales + cash_dues_collected + cash_advance_deposits + cash_voids_in
+         − cash_expenses − cash_supplier_paid − cash_refunds
+difference      = actual − expected
+carried forward = actual − cash_withdrawn        (the next opening_cash)
+```
+
+- **A closing covers a period, not a calendar date:** everything recorded after
+  the previous closing up to this one, placed by `created_at`. A bill back-dated
+  to last week still put its cash in the drawer today. `closing_date` is the
+  day the closing is for; there is one per day, and each must be later than the
+  last.
+- **Opening cash** is typed once, at the first closing. After that it is what
+  the previous closing left in the drawer.
+- `cash_refunds` = cash refunds for returns + advance paid back + cash payments
+  counted by an earlier closing and voided in this period. `cash_voids_in` =
+  cash expenses and cash supplier payments counted earlier and voided now.
+  Anything recorded and voided inside one period counts for nothing.
+- **The cash drawer lock.** Every transaction that records, verifies or voids
+  money locks the `cash_drawer` row first, before any other lock. A closing
+  takes the same lock, so it sees each of them wholly or not at all. Timestamps
+  are whole seconds, so the closing keeps the lock for one second after reading
+  the clock; whatever is recorded next is stamped after `closed_at`.
+- The screen sends the expected figure it showed. If something was recorded in
+  between, the closing is refused and the screen shows the new figures.
+- A difference needs a note. A closing is never edited or deleted.
 
 ### 5.7 Sale returns
 

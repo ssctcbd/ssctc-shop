@@ -136,7 +136,7 @@ function PurchaseDetail({ id, onClose, onChanged }) {
 
           {p.payments.length > 0 && (
             <p className="field-hint">
-              Payments: {p.payments.map((pay) => `${pay.voucherNo} · ${formatMoney(pay.amount)} · ${METHODS[pay.method]}${pay.reference ? ` (${pay.reference})` : ''}`).join('; ')}
+              Payments: {p.payments.map((pay) => `${pay.voucherNo} · ${formatMoney(pay.amount)} · ${METHODS[pay.method]}${pay.reference ? ` (${pay.reference})` : ''}${pay.status === 'void' ? ' — VOID' : ''}`).join('; ')}
             </p>
           )}
           {p.note && <p className="field-hint">Note: {p.note}</p>}
