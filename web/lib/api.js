@@ -2,6 +2,8 @@
 // sends credentials; the browser never sees or stores the session token itself.
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+/** For plain links the browser follows itself, such as a CSV download. */
+export const API_BASE = BASE;
 
 export class ApiError extends Error {
   constructor(status, code, message, details) {

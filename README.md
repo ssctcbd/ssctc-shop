@@ -47,8 +47,20 @@ Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEM
 - Cash closing: the cash that should be in the drawer against what is counted, the difference recorded with a note, and the cash left in carried to the next day.
 - Screens: Dues, Payments, Receipt, Expenses, Cash closing; Pay and Payments on Suppliers.
 
-Still to come: dashboard figures and reports (Milestone 5), users and settings
-screens, backups and launch (6).
+## What exists (Milestone 5 — Dashboard, reports, statement)
+
+- Dashboard with today's sales, money collected, new dues, expenses, estimated profit, cash in the drawer, total dues and who owes most, supplier payables, payments waiting to be verified, low stock and recent sales. Staff see it without profit and payables.
+- Reports, each printable and downloadable as CSV: sales (by day, month, item, category), profit and loss, expenses, payments collected, customer dues with their age, supplier payables, cash closings, stock (levels, low stock, movements).
+- Printable customer statement with a running balance.
+
+## What exists (Milestone 6, part — Users, settings, audit log)
+
+- Users: add, edit, change role, block and unblock, set a new password for someone who forgot theirs.
+- Settings: shop name and contact lines, invoice footer and default paper, bKash and Nagad numbers, customer portal on/off.
+- Audit log: who did what and when, with filters. Read-only.
+
+Still to come (rest of Milestone 6): backups and a restore drill, the launch
+checklist, the remaining hosting checks, and deployment.
 
 To package a release for cPanel: `powershell -File scripts\package-release.ps1`,
 then follow DEPLOYMENT_PLAN.md §9.

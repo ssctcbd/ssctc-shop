@@ -21,4 +21,7 @@ function fromPaisa(paisa) {
   return `${Math.trunc(paisa / 100)}.${String(paisa % 100).padStart(2, '0')}`;
 }
 
-module.exports = { isMoney, toPaisa, fromPaisa };
+/** As fromPaisa, for figures that may be negative (a loss, a shortfall): -1250 → "-12.50" */
+const fromSignedPaisa = (paisa) => (paisa < 0 ? `-${fromPaisa(-paisa)}` : fromPaisa(paisa));
+
+module.exports = { isMoney, toPaisa, fromPaisa, fromSignedPaisa };

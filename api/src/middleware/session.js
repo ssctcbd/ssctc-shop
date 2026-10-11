@@ -3,6 +3,7 @@ const { query } = require('../db/pool');
 const { hashToken } = require('../lib/crypto');
 const { readCookie } = require('../lib/cookies');
 const { AppError, unauthenticated, forbidden } = require('../lib/errors');
+const { portalIsOn } = require('../lib/settings');
 
 // last_seen_at is refreshed at most this often, to avoid a write per request.
 const TOUCH_INTERVAL_SECONDS = 60;
@@ -108,6 +109,8 @@ async function loadCustomerSession(req) {
   );
   const row = rows[0];
   if (!row || !row.portal_enabled || !row.is_active) return null;
+  // Switched off for everyone in Settings: existing logins stop working too.
+  if (!(await portalIsOn())) return null;
 
   if (row.idle_seconds >= TOUCH_INTERVAL_SECONDS) {
     await query('UPDATE customer_sessions SET last_seen_at = UTC_TIMESTAMP() WHERE id = ?', [row.session_id]);

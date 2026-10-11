@@ -28,6 +28,12 @@ export default function InvoicePage() {
   const shop = useFetch('/settings/shop').data?.settings || {};
   const s = data?.sale;
 
+  // The paper set in Settings applies until this computer has chosen its own.
+  const defaultLayout = shop['invoice.default_layout'];
+  useEffect(() => {
+    if (defaultLayout && LAYOUTS[defaultLayout] && !window.localStorage.getItem('ssctc.invoiceLayout')) setLayout(defaultLayout);
+  }, [defaultLayout]);
+
   function chooseLayout(next) {
     setLayout(next);
     window.localStorage.setItem('ssctc.invoiceLayout', next);

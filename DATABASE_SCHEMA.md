@@ -766,6 +766,39 @@ carried forward = actual − cash_withdrawn        (the next opening_cash)
 3. The refund amount is either paid in cash (reducing cash drawer) or credited to the customer's
    advance balance.
 
+### 5.7a Figures in the dashboard and reports (Milestone 5)
+
+Reports only read; they add no tables. Definitions, so that every screen agrees:
+
+```
+net sales     = Σ total_amount − Σ returned_amount    completed sales of type 'sale', by sale_date
+cost          = Σ cost_price_snapshot × (quantity − quantity returned)   product lines of those sales
+gross profit  = net sales − cost
+net profit    = gross profit − Σ active expenses (by expense_date)
+collected     = verified active payments other than customer_advance (by payment_date)
+              + advance deposits (by created_at)
+```
+
+- A return is counted against the bill it belongs to, whenever it happened.
+  Opening dues are not sales. Voided sales, payments and expenses count nowhere.
+- One function (`lib/figures.js`) computes sales and profit for the dashboard
+  and the profit report. Product lines sold with no cost price are counted and
+  reported, because they overstate profit.
+- Days and months are the shop's (Asia/Dhaka): `CONVERT_TZ(col, '+00:00', '+06:00')`.
+- Dues are aged from the date of each unpaid bill: 0–30, 31–60, 61–90, over 90 days.
+- Every report returns `columns`, `rows` and `totals`; `?format=csv` sends the
+  same data as a UTF-8 file with a byte-order mark. Text cells that a
+  spreadsheet would run as a formula are prefixed with an apostrophe.
+- **Customer statement:** bill + total; verified payment − allocation; return
+  − (return_amount − total_refund). These are the terms of the due formula, so
+  the last balance equals `customers.current_due`.
+- **Settings:** only the keys listed in `modules/settings/routes.js` can be
+  written. `portal.enabled = false` refuses portal logins and existing portal
+  sessions; the QR link on a bill keeps working.
+- **Users:** nobody can block or demote themselves, and the last active Owner
+  cannot be removed. Blocking, and a password reset by the Owner, end that
+  user's sessions. Users are never deleted.
+
 ### 5.8 Limits of database-level protection
 
 On shared cPanel hosting the application normally connects as one database user

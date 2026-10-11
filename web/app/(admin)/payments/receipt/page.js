@@ -24,6 +24,12 @@ export default function ReceiptPage() {
   const p = data?.payment;
   const thermal = layout !== 'a4';
 
+  // The paper set in Settings applies until this computer has chosen its own.
+  const defaultLayout = shop['invoice.default_layout'];
+  useEffect(() => {
+    if (defaultLayout && LAYOUTS[defaultLayout] && !window.localStorage.getItem('ssctc.invoiceLayout')) setLayout(defaultLayout);
+  }, [defaultLayout]);
+
   function chooseLayout(next) {
     setLayout(next);
     window.localStorage.setItem('ssctc.invoiceLayout', next);

@@ -252,6 +252,9 @@ function CustomerDetail({ id, onClose, onChanged, onEdit, onCollect }) {
                 Collect due
               </button>
             )}
+            <Link className="btn btn-ghost btn-sm" href={`/customers/statement/?id=${c.id}`}>
+              Statement
+            </Link>
             {can('customers.manage') && (
               <button className="btn btn-ghost btn-sm" onClick={() => onEdit(c)}>
                 Edit

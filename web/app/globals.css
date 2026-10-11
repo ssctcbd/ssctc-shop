@@ -1325,3 +1325,35 @@ select.btn {
   white-space: nowrap;
   padding-left: 12px;
 }
+
+/* ---- milestones 5 and 6: dashboard, reports, users, settings, audit ---- */
+
+.stat small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+}
+table.report tr.subtotal td {
+  border-top: 1px solid var(--ink-300);
+  font-weight: 700;
+}
+a.btn.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+.audit-details span {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+@media print {
+  .toolbar.no-print,
+  .pager {
+    display: none !important;
+  }
+  .table-wrap {
+    border: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+}

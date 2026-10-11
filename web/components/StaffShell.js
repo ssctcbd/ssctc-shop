@@ -38,14 +38,15 @@ const NAV = [
     items: [
       { label: 'Expenses', href: '/expenses/', permission: 'expenses.view' },
       { label: 'Cash closing', href: '/cash/', permission: 'cash.view' },
-      { label: 'Reports', milestone: 5, permission: 'reports.view' },
+      { label: 'Reports', href: '/reports/', permission: 'reports.view' },
     ],
   },
   {
     group: 'System',
     items: [
-      { label: 'Users', milestone: 6, permission: 'users.manage' },
-      { label: 'Settings', milestone: 6, permission: 'settings.manage' },
+      { label: 'Users', href: '/users/', permission: 'users.manage' },
+      { label: 'Settings', href: '/settings/', permission: 'settings.manage' },
+      { label: 'Audit log', href: '/audit/', permission: 'audit.view' },
     ],
   },
 ];

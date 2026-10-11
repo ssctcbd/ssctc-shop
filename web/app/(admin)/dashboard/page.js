@@ -1,68 +1,136 @@
 'use client';
 
 import Link from 'next/link';
-import { useCan, useStaff } from '@/lib/session';
+import { Notice } from '@/components/Form';
+import { formatDateTime, formatMoney } from '@/lib/format';
+import { useStaff } from '@/lib/session';
 import { useFetch } from '@/lib/useFetch';
 
-const MILESTONES = [
-  ['Foundation: login, roles, database', 'Ready'],
-  ['Products, services, inventory, suppliers, purchases', 'Ready'],
-  ['Customers, POS, sales, returns, invoices with QR, customer portal', 'Ready'],
-  ['Due collection, payments, supplier payments, expenses, cash closing', 'Ready'],
-  ['Dashboard figures and reports', 'Milestone 5'],
-];
+/** Money that may be negative (a loss, a shortfall). */
+const signed = (value) => (Number(value) < 0 ? `− ${formatMoney(Math.abs(Number(value)))}` : formatMoney(value));
 
-// Sales, collection and due figures arrive with the modules that produce them
-// (milestones 3–5). Low stock is live from Milestone 2.
+function Stat({ label, value, href, linkText, tone = '', sub }) {
+  return (
+    <div className={`stat ${tone}`}>
+      <span>{label}</span>
+      <b>{value}</b>
+      {sub && <small className="muted">{sub}</small>}
+      {href && <Link href={href}>{linkText}</Link>}
+    </div>
+  );
+}
+
+// Each block comes from the API only if the user's role covers it, so the
+// page simply draws what it is given.
 export default function DashboardPage() {
   const user = useStaff();
-  const can = useCan();
-  const lowStock = useFetch(can('inventory.view') ? '/inventory/low-stock' : null);
-  const lowCount = lowStock.data ? lowStock.data.products.length : null;
+  const { data: d, error } = useFetch('/dashboard');
 
   return (
     <>
       <div className="page-head">
         <h1>Welcome, {user.name}</h1>
         <p>
-          You are logged in as <span className="badge">{user.role.name}</span>
+          You are logged in as <span className="badge">{user.role.name}</span> · today&apos;s figures
         </p>
       </div>
 
-      <div className="grid">
-        <div className="stat">
-          <span>Today&apos;s sales</span>
-          <b className="muted">—</b>
-        </div>
-        <div className="stat">
-          <span>Collected today</span>
-          <b className="muted">—</b>
-        </div>
-        <div className="stat">
-          <span>Outstanding dues</span>
-          <b className="muted">—</b>
-        </div>
-        <div className={`stat ${lowCount ? 'due' : ''}`}>
-          <span>Low-stock products</span>
-          <b className={lowCount === null ? 'muted' : ''}>{lowCount === null ? '—' : lowCount}</b>
-          {lowCount > 0 && <Link href="/inventory/">See the list</Link>}
-        </div>
-      </div>
+      <Notice>{error?.message}</Notice>
+      {d && (
+        <>
+          <div className="grid">
+            {d.sales && <Stat label="Today's sales" value={formatMoney(d.sales.netSales)} sub={`${d.sales.bills} bill(s)`} href="/sales/" linkText="See sales" />}
+            {d.payments && <Stat label="Collected today" value={formatMoney(d.payments.collectedToday)} href="/payments/" linkText="See payments" />}
+            {d.sales && <Stat label="New dues today" value={formatMoney(d.sales.newDues)} tone={Number(d.sales.newDues) > 0 ? 'due' : ''} />}
+            {d.expensesToday !== undefined && <Stat label="Today's expenses" value={formatMoney(d.expensesToday)} href="/expenses/" linkText="See expenses" />}
+            {d.profit && (
+              <Stat
+                label="Estimated profit today"
+                value={signed(d.profit.netProfit)}
+                tone={Number(d.profit.netProfit) < 0 ? 'due' : 'ok'}
+                sub={`Gross ${signed(d.profit.grossProfit)} − expenses ${formatMoney(d.profit.expenses)}${d.profit.uncostedLines > 0 ? ' · some items have no cost price' : ''}`}
+              />
+            )}
+            {d.cash && (
+              <Stat
+                label={d.cash.hasOpening ? 'Cash that should be in the drawer' : 'Cash taken so far'}
+                value={signed(d.cash.expected)}
+                sub={d.cash.closedToday ? "Today's cash is closed" : d.cash.hasOpening ? 'Not closed yet today' : 'The cash has never been closed'}
+                href="/cash/"
+                linkText="Cash closing"
+              />
+            )}
+          </div>
 
-      <div className="card">
-        <h2>System status</h2>
-        <p className="muted" style={{ marginBottom: 8 }}>
-          Figures above fill in as each module is built.
-        </p>
-        <ul className="checklist">
-          {MILESTONES.map(([label, status]) => (
-            <li key={label}>
-              <span>{label}</span>
-              <span className={status === 'Ready' ? 'badge' : 'muted'}>{status}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+          <div className="grid">
+            {d.dues && <Stat label="Customers owe the shop" value={formatMoney(d.dues.total)} tone={Number(d.dues.total) > 0 ? 'due' : ''} sub={`${d.dues.customers} customer(s)`} href="/dues/" linkText="Collect dues" />}
+            {d.payables && <Stat label="The shop owes suppliers" value={formatMoney(d.payables.total)} sub={`${d.payables.suppliers} supplier(s)`} href="/suppliers/" linkText="See suppliers" />}
+            {d.payments && (
+              <Stat
+                label="Payments waiting to be verified"
+                value={d.payments.unverifiedCount}
+                tone={d.payments.unverifiedCount > 0 ? 'due' : ''}
+                sub={d.payments.unverifiedCount > 0 ? formatMoney(d.payments.unverifiedAmount) : 'Nothing waiting'}
+                href="/payments/"
+                linkText="See payments"
+              />
+            )}
+            {d.lowStock !== undefined && <Stat label="Low-stock products" value={d.lowStock} tone={d.lowStock > 0 ? 'due' : ''} href="/inventory/" linkText="See the list" />}
+          </div>
+
+          <div className="cash-columns">
+            {d.recentSales && (
+              <div>
+                <h2 className="section-title">Recent sales</h2>
+                <div className="table-wrap">
+                  <table className="data">
+                    <tbody>
+                      {d.recentSales.map((s) => (
+                        <tr key={s.id} className={s.status === 'void' ? 'inactive' : ''}>
+                          <td>
+                            <Link href={`/sales/invoice/?id=${s.id}`}>
+                              <strong>{s.invoiceNo}</strong>
+                            </Link>
+                            <span className="sub">
+                              {s.customerName || 'Walk-in'} · {formatDateTime(s.saleDate)}
+                            </span>
+                          </td>
+                          <td className="num">
+                            {formatMoney(s.totalAmount)}
+                            {s.status === 'void' ? <span className="sub">Void</span> : Number(s.dueAmount) > 0 && <span className="sub qty-out">Due {formatMoney(s.dueAmount)}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {d.recentSales.length === 0 && <div className="empty">No sales yet.</div>}
+                </div>
+              </div>
+            )}
+            {d.dues && (
+              <div>
+                <h2 className="section-title">Who owes the most</h2>
+                <div className="table-wrap">
+                  <table className="data">
+                    <tbody>
+                      {d.dues.top.map((c) => (
+                        <tr key={c.id}>
+                          <td>
+                            <strong>{c.name}</strong>
+                            <span className="sub">{c.phone}</span>
+                          </td>
+                          <td className="num qty-out">{formatMoney(c.currentDue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {d.dues.top.length === 0 && <div className="empty">Nobody owes the shop anything.</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </>
   );
 }

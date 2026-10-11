@@ -4,7 +4,8 @@ const { newToken, hashToken, hashSecret, verifySecret } = require('../../lib/cry
 const { assertNotLocked, recordAttempt } = require('../../lib/loginGuard');
 const { normalizePhone } = require('../../lib/phone');
 const { writeAudit } = require('../../lib/audit');
-const { unauthenticated, badRequest } = require('../../lib/errors');
+const { unauthenticated, badRequest, forbidden } = require('../../lib/errors');
+const { portalIsOn } = require('../../lib/settings');
 
 const INVALID = 'Incorrect mobile number or PIN.';
 
@@ -20,6 +21,7 @@ const INVALID = 'Incorrect mobile number or PIN.';
  * loginGuard is what actually protects the account.
  */
 async function login({ phone, pin, ip, userAgent }) {
+  if (!(await portalIsOn())) throw forbidden('The customer portal is switched off at the moment. Please ask at the shop.');
   const normalized = normalizePhone(phone);
   // Lock on what was typed even if it is not a valid number, so garbage input
   // still counts against the IP.
