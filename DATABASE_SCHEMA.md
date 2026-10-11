@@ -595,6 +595,22 @@ the sale and still count returns or payments from before the other committed.
 A test (five returns racing for the last unit) caught exactly this. With READ
 COMMITTED, "take the lock, then read" always reads committed truth.
 
+Two things found in the pre-launch review and now handled in `db/pool.js`:
+
+- **A server whose binary log format is STATEMENT refuses every InnoDB write at
+  READ COMMITTED.** On such a server the whole application would fail to save
+  anything. Each connection therefore chooses its level from the server:
+  READ COMMITTED normally, REPEATABLE READ when `log_bin = 1` and
+  `binlog_format = 'STATEMENT'`. The fallback is safe for money because every
+  transaction that touches money (and a purchase void) begins with the locking
+  read on the cash drawer row; a locking read does not open the snapshot, so
+  the snapshot is taken only once the transaction holds the lock. The full
+  test suite, including the races, passes in both modes. The Backup & health
+  screen and `npm run launch-check` say which mode is in use.
+- **`sql_mode` is set on every connection** (strict mode and
+  `ONLY_FULL_GROUP_BY`), so a value that does not fit a column is an error on
+  any hosting, never silently cut to fit.
+
 **Returns and refunds (migration 003).** New columns `sales.returned_amount`,
 `sales.refunded_amount`, `sale_returns.return_amount`,
 `sale_returns.idempotency_key`. The money checks on `sales` become:

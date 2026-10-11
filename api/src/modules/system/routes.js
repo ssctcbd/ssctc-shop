@@ -27,13 +27,24 @@ async function pendingMigrations() {
   return { tracked: true, files: files.filter((f) => !applied.has(f)) };
 }
 
-router.get('/system/status', staffWith('system.backup'), async (_req, res) => {
+router.get('/system/status', staffWith('system.backup'), async (req, res) => {
   const [size] = await query('SELECT COUNT(*) AS tables, COALESCE(SUM(data_length + index_length), 0) AS bytes FROM information_schema.tables WHERE table_schema = DATABASE()');
   const [counts] = await query(
     `SELECT (SELECT COUNT(*) FROM sales) AS sales, (SELECT COUNT(*) FROM customers) AS customers, (SELECT COUNT(*) FROM products) AS products,
             (SELECT COUNT(*) FROM payments) AS payments, (SELECT COUNT(*) FROM audit_logs) AS audit`,
   );
+  const [server] = await query('SELECT VERSION() AS version, @@session.transaction_isolation AS isolation, @@log_bin AS log_bin, @@binlog_format AS binlog_format');
   res.json({
+    server: {
+      mysql: server.version,
+      isolation: server.isolation,
+      // READ COMMITTED is what the application is designed for; see db/pool.js.
+      isolationFallback: server.isolation !== 'READ-COMMITTED',
+      // The address this request appears to come from. If it is 127.0.0.1 or
+      // the same for every visitor, TRUST_PROXY is wrong and one person's
+      // failed logins can lock everyone out (DEPLOYMENT_PLAN.md T15).
+      clientIp: req.ip,
+    },
     checks: await runIntegrityChecks(query),
     backup: { lastDownload: await getSetting('backup.last_download'), lastRun: await getSetting('backup.last_run') },
     database: { tables: Number(size.tables), bytes: Number(size.bytes), sales: Number(counts.sales), customers: Number(counts.customers), products: Number(counts.products), payments: Number(counts.payments), auditEntries: Number(counts.audit) },

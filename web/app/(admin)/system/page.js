@@ -94,6 +94,20 @@ export default function SystemPage() {
                 {s.database.products}
               </div>
             </div>
+            <div className="kv">
+              <div>
+                <span>Database server</span>
+                MySQL {s.server.mysql}
+              </div>
+              <div>
+                <span>Your address, as the server sees it</span>
+                {s.server.clientIp}
+              </div>
+            </div>
+            {/^(127\.|::1$|::ffff:127\.)/.test(s.server.clientIp) && (
+              <Notice kind="warning">The server sees every visitor as itself. Until the TRUST_PROXY setting is corrected, a few wrong passwords from anyone can lock everybody out for 15 minutes.</Notice>
+            )}
+            {s.server.isolationFallback && <Notice kind="warning">The database server does not allow the preferred transaction mode, so a safe fallback is in use. Ask the host whether binlog_format can be ROW or MIXED.</Notice>}
             {s.migrations.tracked && s.migrations.files.length > 0 && <Notice kind="warning">Database updates not yet run: {s.migrations.files.join(', ')}. Some screens may not work until they are.</Notice>}
           </div>
         </div>

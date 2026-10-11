@@ -369,6 +369,7 @@ router.post('/purchases/:id/void', staffWith('purchases.manage'), idParam, valid
   const { reason } = req.body;
 
   await transaction(async (conn) => {
+    await lockCashDrawer(conn);
     const [found] = await conn.execute('SELECT supplier_id FROM purchases WHERE id = ?', [req.id]);
     if (!found[0]) throw notFound('Purchase not found.');
     // Same lock order as saving a bill: supplier first, then the bill, then products.

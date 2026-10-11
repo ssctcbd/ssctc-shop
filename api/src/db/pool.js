@@ -25,9 +25,24 @@ const pool = mysql.createPool({
 // or payments from before the other one committed, and act on stale numbers.
 // With READ COMMITTED every statement sees what is committed when it runs, so
 // "take the lock, then read" is always reading the truth.
+//
+// One exception. A server that writes its binary log in STATEMENT format
+// refuses every InnoDB write made at READ COMMITTED, which would stop the
+// whole application. There the session stays at REPEATABLE READ. That is still
+// correct for money, because every transaction that touches money begins with
+// a locking read (lib/cash.js lockCashDrawer): a locking read does not open
+// the snapshot, so the snapshot is taken only after the transaction has the
+// lock, when nothing it depends on can still be changing.
+//
+// sql_mode is fixed here rather than left to the hosting default, so a value
+// that does not fit a column is an error, never silently cut to fit.
+const SQL_MODE = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
+const ISOLATION = "SET SESSION transaction_isolation = IF(@@log_bin = 1 AND @@binlog_format = 'STATEMENT', 'REPEATABLE-READ', 'READ-COMMITTED')";
+
 pool.pool.on('connection', (conn) => {
   conn.query("SET time_zone = '+00:00'");
-  conn.query('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+  conn.query(`SET SESSION sql_mode = '${SQL_MODE}'`);
+  conn.query(ISOLATION);
 });
 
 async function query(sql, params = []) {

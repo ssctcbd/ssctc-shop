@@ -28,6 +28,10 @@ async function main() {
     pass(env.DB_USER !== 'root', 'The application does not connect as root', 'Create a database user for the application.', 'WARN');
 
     // --- database --------------------------------------------------------------
+    const [server] = await rows('SELECT VERSION() AS version, @@log_bin AS log_bin, @@binlog_format AS binlog_format, @@sql_mode AS sql_mode');
+    pass(/^8\./.test(server.version) && !/mariadb/i.test(server.version), 'The database is MySQL 8', `It reports "${server.version}". The application needs MySQL 8.0.16 or newer, not MariaDB.`);
+    pass(!(Number(server.log_bin) === 1 && server.binlog_format === 'STATEMENT'), 'The server allows READ COMMITTED transactions', 'Its binary log format is STATEMENT, so the application falls back to REPEATABLE READ. It works, but ask the host whether binlog_format can be ROW or MIXED.', 'WARN');
+
     const files = fs.readdirSync(path.join(__dirname, '..', 'migrations')).filter((f) => f.endsWith('.sql')).sort();
     const columns = await rows("SELECT table_name AS t, column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND (table_name, column_name) IN (('sales', 'returned_amount'), ('purchases', 'idempotency_key'), ('payments', 'kind'), ('daily_cash_closings', 'period_start'))");
     pass(columns.length === 4, `All ${files.length} migrations have been run`, `Only ${columns.length} of 4 marker columns exist. Run the missing migration files in number order.`);

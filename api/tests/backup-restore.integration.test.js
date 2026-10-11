@@ -214,6 +214,11 @@ it('the housekeeping job removes only long-expired sessions and old login attemp
 it('the System screen reports that every balance agrees with its records, and notices when one does not', async () => {
   const status = (await owner.get('/system/status')).body;
   assert.equal(status.checks.length, 7);
+  // How the database is being used, and the address the server sees: both matter on shared hosting.
+  assert.match(status.server.mysql, /^8./);
+  assert.ok(['READ-COMMITTED', 'REPEATABLE-READ'].includes(status.server.isolation));
+  assert.equal(status.server.isolationFallback, status.server.isolation !== 'READ-COMMITTED');
+  assert.ok(status.server.clientIp);
   assert.ok(status.checks.every((c) => c.problems === 0), JSON.stringify(status.checks));
   assert.ok(status.database.tables >= 29 && status.database.sales === 1 && status.database.customers === 1);
   // Built from the SQL files without the migration runner, as on phpMyAdmin.

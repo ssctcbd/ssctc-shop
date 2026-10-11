@@ -310,6 +310,13 @@ Built and tested locally, waiting to be put on the hosting account:
 3. Add `BACKUP_DIR` to the environment variables, create that folder, and add the
    two cron jobs (Section 5).
 4. Run `npm run launch-check` and clear every FAIL.
+   Then open **Backup & health** on the live site and read two lines there:
+   "Your address, as the server sees it" must be your own internet address,
+   not `127.0.0.1`. If it is `127.0.0.1`, set `TRUST_PROXY=1` in the
+   environment variables and restart (this is test T15); until then one
+   person's wrong passwords can lock everybody out for 15 minutes. And if a
+   warning about the transaction mode appears, the system still works; ask the
+   host whether `binlog_format` can be ROW or MIXED.
 5. Do the restore drill once on the hosting account (Section 6).
 6. Finish the hosting checks still open in Section 2: H1, T10 to T13, T15 to T17, T19.
 7. Work through the checklist in Section 8 with real products, customers and

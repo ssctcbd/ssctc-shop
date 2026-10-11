@@ -49,8 +49,18 @@ async function restore(file, database) {
 
   const conn = await mysql.createConnection({ host: env.DB_HOST, port: env.DB_PORT, user: env.DB_USER, password: env.DB_PASSWORD, charset: 'utf8mb4', timezone: 'Z' });
   try {
-    await conn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
-    await conn.query(`USE \`${database}\``);
+    try {
+      await conn.query(`USE \`${database}\``);
+    } catch {
+      // Not there (or not ours). Creating it works on a PC; on cPanel a
+      // database is made in the "MySQL Databases" screen and the user added to it.
+      try {
+        await conn.query(`CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
+        await conn.query(`USE \`${database}\``);
+      } catch (err) {
+        throw new Error(`Cannot open or create database "${database}" (${err.code}). On cPanel, create it in "MySQL Databases", add the application's user to it with all privileges, then run this again.`);
+      }
+    }
     const [[existing]] = await conn.query('SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE()');
     if (Number(existing.n) > 0) throw new Error(`Database "${database}" already has ${existing.n} table(s). Restore into an empty database; nothing was changed.`);
 
