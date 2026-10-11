@@ -12,6 +12,10 @@
     "dev": "node --watch app.js",
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "prune": "node scripts/prune.js",
+    "launch-check": "node scripts/launch-check.js",
     "test": "node --test --test-concurrency=1 \"tests/*.test.js\""
   },
   "dependencies": {

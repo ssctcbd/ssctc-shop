@@ -49,6 +49,7 @@ function createApp() {
   v1.use(require('./modules/dashboard/routes'));
   v1.use(require('./modules/reports/routes'));
   v1.use(require('./modules/settings/routes'));
+  v1.use(require('./modules/system/routes'));
 
   // API_BASE_PATH is "/api" when Passenger passes the full URL through, and ""
   // if it strips the mount path (DEPLOYMENT_PLAN.md, test T5).

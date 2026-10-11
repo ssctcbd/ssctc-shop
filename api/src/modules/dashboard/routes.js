@@ -5,6 +5,7 @@ const { salesFigures, expensesTotal } = require('../../lib/figures');
 const { drawerMovements, expectedCash } = require('../../lib/cash');
 const { toPaisa, fromPaisa, fromSignedPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, today } = require('../../lib/dates');
+const { getSetting } = require('../../lib/settings');
 
 // The dashboard (PROJECT_PLAN.md §4.1). One request; each block is included
 // only for a user whose permissions cover the screen it summarises, so the
@@ -73,6 +74,12 @@ router.get('/dashboard', staffWith('dashboard.view'), async (req, res) => {
       expected: fromSignedPaisa(expectedCash(previous ? toPaisa(previous.carried) : 0, figures)),
       closedToday: Boolean(previous && previous.closing_day === day),
     };
+  }
+
+  if (can('system.backup')) {
+    const download = await getSetting('backup.last_download');
+    const run = await getSetting('backup.last_run');
+    out.backup = { lastDownloadAt: download ? download.at : null, lastRunAt: run ? run.at : null, lastRunOk: run ? Boolean(run.ok) : null };
   }
 
   res.json(out);

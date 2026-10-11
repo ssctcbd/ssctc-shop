@@ -47,6 +47,7 @@ const NAV = [
       { label: 'Users', href: '/users/', permission: 'users.manage' },
       { label: 'Settings', href: '/settings/', permission: 'settings.manage' },
       { label: 'Audit log', href: '/audit/', permission: 'audit.view' },
+      { label: 'Backup & health', href: '/system/', permission: 'system.backup' },
     ],
   },
 ];

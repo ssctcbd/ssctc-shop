@@ -38,6 +38,16 @@ export default function DashboardPage() {
       <Notice>{error?.message}</Notice>
       {d && (
         <>
+          {d.backup && (!d.backup.lastDownloadAt || Date.now() - new Date(d.backup.lastDownloadAt).getTime() > 7 * 86400000) && (
+            <Notice kind="warning">
+              {d.backup.lastDownloadAt ? 'No backup has been downloaded for over a week.' : 'No backup of the shop records has been downloaded yet.'} <Link href="/system/">Download one now</Link>
+            </Notice>
+          )}
+          {d.backup && d.backup.lastRunOk === false && (
+            <Notice>
+              Last night&apos;s automatic backup failed. <Link href="/system/">See details</Link>
+            </Notice>
+          )}
           <div className="grid">
             {d.sales && <Stat label="Today's sales" value={formatMoney(d.sales.netSales)} sub={`${d.sales.bills} bill(s)`} href="/sales/" linkText="See sales" />}
             {d.payments && <Stat label="Collected today" value={formatMoney(d.payments.collectedToday)} href="/payments/" linkText="See payments" />}

@@ -3,7 +3,7 @@
 Shop management system for SS Computer Training Centre: an Express API (`api/`)
 and a Next.js front end exported as static files (`web/`), on MySQL 8.
 
-Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) · [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md)
+Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) · [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md) · For the shop: [USER_GUIDE.md](USER_GUIDE.md) (Bangla)
 
 ## What exists (Milestone 1 — Foundation)
 
@@ -59,8 +59,25 @@ Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEM
 - Settings: shop name and contact lines, invoice footer and default paper, bKash and Nagad numbers, customer portal on/off.
 - Audit log: who did what and when, with filters. Read-only.
 
-Still to come (rest of Milestone 6): backups and a restore drill, the launch
-checklist, the remaining hosting checks, and deployment.
+## What exists (Milestone 6 — Backup, health, launch tools)
+
+- Backup made by the application itself (no `mysqldump` needed): a daily job for cron, and an Owner-only download from the Backup & health screen. Old files are thinned to 14 daily and 8 weekly.
+- Restore into an empty database, with the row count and the consistency checks verified. The restore drill is an automated test: the restored database is compared with the original table by table.
+- Backup & health screen: last download, last automatic backup, and whether every balance still agrees with its records. The dashboard reminds the Owner when no backup has been downloaded for a week.
+- Housekeeping job for expired sessions; a read-only launch check.
+- A short user guide in Bangla.
+
+Not done, and not something this repository can do: the remaining hosting checks
+and the deployment itself. See DEPLOYMENT_PLAN.md §8 to §10.
+
+## Operating commands (in `api/`)
+
+```
+npm run backup                                  # dump to BACKUP_DIR and thin old files (daily cron)
+npm run prune                                   # delete long-expired sessions and old login attempts (daily cron)
+npm run restore -- <file.sql.gz> --database <empty database name>
+npm run launch-check                            # read-only checks before going live
+```
 
 To package a release for cPanel: `powershell -File scripts\package-release.ps1`,
 then follow DEPLOYMENT_PLAN.md §9.

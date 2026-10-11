@@ -33,7 +33,8 @@ const updateSchema = z.strictObject({
 });
 
 router.get('/settings', staffWith('settings.manage'), async (_req, res) => {
-  const rows = await query('SELECT s.setting_key, s.value, s.description, s.updated_at, u.name AS user_name FROM settings s LEFT JOIN users u ON u.id = s.updated_by ORDER BY s.setting_key');
+  // The application's own notes (when the last backup ran) are not settings a person edits.
+  const rows = await query("SELECT s.setting_key, s.value, s.description, s.updated_at, u.name AS user_name FROM settings s LEFT JOIN users u ON u.id = s.updated_by WHERE s.setting_key NOT LIKE 'backup.%' ORDER BY s.setting_key");
   res.json({
     settings: rows.map((r) => ({ key: r.setting_key, value: r.value, description: r.description, editable: r.setting_key in EDITABLE, updatedAt: r.updated_at, updatedByName: r.user_name })),
   });

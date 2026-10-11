@@ -5,8 +5,9 @@ backed up on the Hosting Bangladesh shared cPanel account. Revised 2026-10-10.
 
 See [PROJECT_PLAN.md](PROJECT_PLAN.md) and [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md).
 
-Nothing in this document has been executed yet. `<user>` stands for the cPanel
-username.
+Sections 1 to 4 and 7 are the plan as written before development. Sections 5, 6
+and 8 to 10 describe what was actually built. Nothing after Milestone 1 has been
+deployed. `<user>` stands for the cPanel username.
 
 Changes from the previous version: the application no longer stores uploaded files
 or sends email, so the tests, cron jobs and risks for private storage, upload size,
@@ -129,8 +130,30 @@ Releases are done outside shop hours, since the POS is unavailable during a rest
 | `backup-db` | Daily, after closing time | Dump and compress the database; prune old dumps |
 | `prune-logs` | Daily | Trim expired sessions and old login attempts |
 
-Each job appends its result to a log file that the dashboard reads, so a failed
-backup shows as a warning the next morning.
+As built (Milestone 6):
+
+| Job | Command, run in the application root | Writes |
+|---|---|---|
+| `backup-db` | `npm run backup` | `BACKUP_DIR/ssctc-shop-YYYYMMDD-HHMMSS.sql.gz`, a line in `BACKUP_DIR/backup.log`, and the result in the database |
+| `prune-logs` | `npm run prune` | One line of output: how many expired sessions and old login attempts were removed |
+
+- The backup result is stored in the database, so a failed backup shows as a
+  warning on the Owner's dashboard and on the Backup & health screen.
+- A cron line has to enter the application's Node environment first. cPanel
+  shows the exact command at the top of the Node.js application page ("Enter
+  to the virtual environment"). The cron command is that line followed by the
+  job, for example:
+
+  ```
+  source /home/<user>/nodevenv/ssctc-shop-api/22/bin/activate && cd /home/<user>/ssctc-shop-api && npm run backup >> /home/<user>/ssctc-shop-backups/cron.log 2>&1
+  ```
+
+  Suggested times: backup 23:30, prune 04:00 (server time; check what time
+  zone the server uses). **Not yet tried on this hosting** (test T16).
+- `BACKUP_DIR` must be set in the application's environment variables to
+  `/home/<user>/ssctc-shop-backups`, a folder outside `public_html`.
+- If cron cannot be made to work, the weekly download below is still a
+  complete backup routine on its own.
 
 ## 6. Backup and restore
 
@@ -156,6 +179,32 @@ losing the record of who owes what.
 Restore: create an empty database → import the dump → point `DB_NAME` at it →
 restart → log in and open the latest sale. A restore drill is done once before
 launch and every three months after.
+
+As built (Milestone 6):
+
+- **The application writes the dump itself**, so it does not depend on
+  `mysqldump` being available (T17). The file is plain SQL, one statement per
+  line, gzip-compressed, taken inside one read-only transaction with a
+  consistent snapshot. Its last line says how many rows it holds; a file
+  without that line was cut short and is refused.
+- **Off-server copy:** the Owner's menu has **Backup & health → Download a
+  backup now**. Each download is written to the audit log. The dashboard warns
+  when none has been downloaded for 7 days.
+- **Restore with the script** (needs SSH or the Node.js "Run JS script" button):
+  `npm run restore -- <file.sql.gz> --database <name>`. It refuses a database
+  that already has tables, counts the restored rows against the file, and runs
+  the consistency checks.
+- **Restore without SSH:** un-zip the file on the PC (7-Zip opens `.gz`),
+  create an empty database in cPanel, and import the `.sql` file in
+  phpMyAdmin (Import tab).
+- Then set `DB_NAME` to the restored database in the Node.js application's
+  environment variables and restart. The old database is left untouched until
+  the restored one has been checked.
+- **Restore drill:** automated in the test suite. A backup is downloaded,
+  restored into a second database, and every table is compared with the
+  original by row count and checksum, including text with quotes, line breaks,
+  Bangla and emoji. This proves the method; **a drill on the hosting account
+  itself is still to be done once before launch**.
 
 ## 7. Deployment risks
 
@@ -184,6 +233,15 @@ launch and every three months after.
 - [ ] Backup taken, downloaded off-server and restored once successfully
 - [ ] A logged-out browser reaches nothing but the login page, and API requests without a session are refused
 - [ ] The owner completes a sale with partial payment, a later due collection, a payment verification and a day-end report on the shop PC
+
+What a program can check is checked by `npm run launch-check` in the
+application root: production mode, HTTPS address, password hashing cost,
+left-over first-Owner variables, migrations and base data, an active Owner, test
+accounts, shop details, cost prices, every consistency check, the backup folder
+and the age of the last backups. It changes nothing. Lines marked FAIL must be
+fixed before launch; WARN lines are for the owner to judge.
+
+The same consistency checks are on the **Backup & health** screen at any time.
 
 ## 9. Deploying a release with cPanel File Manager
 
@@ -241,3 +299,37 @@ Still unverified on this hosting (Section 2): resource limits (H1), memory
 cron (T16), database dump (T17) and the **Run JS script** route for migrations
 (T19). Until T15 is checked, per-IP login blocking may count every visitor as
 one address; the per-account lockout is unaffected.
+
+## 10. What is left before launch
+
+Built and tested locally, waiting to be put on the hosting account:
+
+1. Run migrations `002`, `003` and `004` on the live database (Section 9, step 3).
+   Only `001` has been run there.
+2. Upload the current release (Section 9). `scripts\package-release.ps1` builds it.
+3. Add `BACKUP_DIR` to the environment variables, create that folder, and add the
+   two cron jobs (Section 5).
+4. Run `npm run launch-check` and clear every FAIL.
+5. Do the restore drill once on the hosting account (Section 6).
+6. Finish the hosting checks still open in Section 2: H1, T10 to T13, T15 to T17, T19.
+7. Work through the checklist in Section 8 with real products, customers and
+   opening dues.
+
+**Security headers on the pages.** Responses from the API already carry the
+usual security headers (set by the application). The pages themselves are plain
+files served by the web server, so their headers can only be set in the
+`.htaccess` of the subdomain's document root, which belongs to cPanel and is
+not touched by a release. If the host confirms that adding lines to it is safe,
+these are the lines; they have **not** been applied or tested on the hosting:
+
+```
+<IfModule mod_headers.c>
+  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "same-origin"
+</IfModule>
+```
+
+The site already tells search engines not to index it (`robots.txt` and a
+`noindex` tag on every page).

@@ -60,6 +60,7 @@ export default function PosPage() {
   const [lines, setLines] = useState([]);
   const [discount, setDiscount] = useState('');
   const [note, setNote] = useState('');
+  const [saleDate, setSaleDate] = useState('');
   const [payments, setPayments] = useState([{ key: 0, method: 'cash', amount: '', reference: '', verified: false }]);
   const [fields, setFields] = useState({});
   const [error, setError] = useState('');
@@ -123,6 +124,7 @@ export default function PosPage() {
         customerId: customer ? customer.id : null,
         walkInName,
         note,
+        ...(saleDate ? { date: saleDate } : {}),
         discountAmount: discount || '0',
         items: lines.map((l) => ({
           type: l.type,
@@ -285,6 +287,7 @@ export default function PosPage() {
             </div>
             {Number(due) > 0 && !customer && lines.length > 0 && <p className="field-error">This leaves a due. Choose a saved customer or take full payment.</p>}
             <Field as="textarea" label="Note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+            {can('sales.backdate') && <Field label="Sale date" type="date" value={saleDate} error={fields.date} onChange={(e) => (clearErrors(), setSaleDate(e.target.value))} hint="Leave empty for today. Only for a sale written on paper earlier." />}
             <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
               {busy ? 'Saving…' : 'Complete sale'}
             </button>
