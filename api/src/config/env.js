@@ -31,6 +31,13 @@ const schema = z.object({
 
   BCRYPT_COST: z.coerce.number().int().min(4).max(14).default(12),
   BACKUP_DIR: z.string().default(''),
+  // The secret a cPanel cron job sends to start the nightly backup (empty = that endpoint is off).
+  BACKUP_CRON_KEY: z.string().refine((v) => v === '' || v.length >= 32, 'must be at least 32 characters').default(''),
+  // Google Drive copy of the nightly backup, made by `npm run gdrive-setup` (all four, or none).
+  GDRIVE_CLIENT_ID: z.string().default(''),
+  GDRIVE_CLIENT_SECRET: z.string().default(''),
+  GDRIVE_REFRESH_TOKEN: z.string().default(''),
+  GDRIVE_FOLDER_ID: z.string().default(''),
 });
 
 const parsed = schema.safeParse(process.env);

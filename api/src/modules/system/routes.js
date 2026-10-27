@@ -2,12 +2,17 @@ const express = require('express');
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
+const crypto = require('node:crypto');
+const { env } = require('../../config/env');
 const { query } = require('../../db/pool');
 const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { writeDump, dumpFileName } = require('../../lib/backup');
 const { runIntegrityChecks } = require('../../lib/integrity');
 const { getSetting, setSetting } = require('../../lib/settings');
+const { runScheduledBackup } = require('../../lib/scheduledBackup');
+const { driveConfigured } = require('../../lib/gdrive');
+const { AppError, notFound, forbidden, conflict } = require('../../lib/errors');
 
 // Backup and health: Owner only (permission system.backup).
 const router = express.Router();
@@ -46,7 +51,7 @@ router.get('/system/status', staffWith('system.backup'), async (req, res) => {
       clientIp: req.ip,
     },
     checks: await runIntegrityChecks(query),
-    backup: { lastDownload: await getSetting('backup.last_download'), lastRun: await getSetting('backup.last_run') },
+    backup: { lastDownload: await getSetting('backup.last_download'), lastRun: await getSetting('backup.last_run'), scheduled: Boolean(env.BACKUP_CRON_KEY), drive: driveConfigured() },
     database: { tables: Number(size.tables), bytes: Number(size.bytes), sales: Number(counts.sales), customers: Number(counts.customers), products: Number(counts.products), payments: Number(counts.payments), auditEntries: Number(counts.audit) },
     migrations: await pendingMigrations(),
   });
@@ -78,6 +83,40 @@ router.get('/system/backup', staffWith('system.backup'), async (req, res) => {
     // download. The file lacks its completion line and cannot be restored.
     console.error(`Backup download failed: ${err.message}`);
     res.destroy(err);
+  }
+});
+
+const sameSecret = (given, expected) => {
+  const a = crypto.createHash('sha256').update(String(given)).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
+};
+let backupRunning = false;
+
+/**
+ * The nightly backup, started by a cPanel cron job with curl (DEPLOYMENT_PLAN.md
+ * §5): a cron job cannot see the environment variables set on the Node.js
+ * page, but the running application can. No login: the job proves itself with
+ * the BACKUP_CRON_KEY secret in the X-Backup-Key header. Without that variable
+ * set, this address does not exist.
+ */
+router.post('/system/scheduled-backup', async (req, res) => {
+  if (!env.BACKUP_CRON_KEY) throw notFound();
+  if (!sameSecret(req.headers['x-backup-key'] || '', env.BACKUP_CRON_KEY)) throw forbidden('Wrong backup key.');
+  if (backupRunning) throw conflict('A backup is already running.');
+  backupRunning = true;
+  try {
+    let result;
+    try {
+      result = await runScheduledBackup({ record: (r) => setSetting('backup.last_run', r, 'Result of the last scheduled backup') });
+    } catch (err) {
+      // Told to the cron job, so its log says why. The details are recorded for the System screen.
+      throw new AppError(502, 'backup_failed', `Backup failed: ${err.message}`);
+    }
+    await writeAudit({ action: 'system.backup_scheduled', entityType: 'system', newValues: { file: result.file, rows: result.rows, drive: Boolean(result.drive) }, ip: req.ip });
+    res.json({ ok: true, file: result.file, bytes: result.bytes, drive: result.drive || null });
+  } finally {
+    backupRunning = false;
   }
 });
 

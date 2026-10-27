@@ -288,7 +288,7 @@ a:hover {
   padding: 18px 18px 14px;
   border-bottom: 1px solid var(--line);
 }
-.sidebar-brand > span {
+.sidebar-brand > span:not(.logo) {
   display: block;
   margin-top: 8px;
   font-size: 11px;

@@ -86,7 +86,13 @@ router.get('/dashboard', staffWith('dashboard.view'), async (req, res) => {
   if (can('system.backup')) {
     const download = await getSetting('backup.last_download');
     const run = await getSetting('backup.last_run');
-    out.backup = { lastDownloadAt: download ? download.at : null, lastRunAt: run ? run.at : null, lastRunOk: run ? Boolean(run.ok) : null };
+    out.backup = {
+      lastDownloadAt: download ? download.at : null,
+      lastRunAt: run ? run.at : null,
+      lastRunOk: run ? Boolean(run.ok) : null,
+      // The last copy that reached Google Drive: a copy away from the server, as a download is.
+      lastDriveAt: run && run.drive && run.drive.ok ? run.drive.at : null,
+    };
   }
 
   res.json(out);

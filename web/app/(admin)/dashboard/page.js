@@ -38,7 +38,8 @@ export default function DashboardPage() {
       <Notice>{error?.message}</Notice>
       {d && (
         <>
-          {d.backup && (!d.backup.lastDownloadAt || Date.now() - new Date(d.backup.lastDownloadAt).getTime() > 7 * 86400000) && (
+          {/* A copy in Google Drive from the last two nights counts as a copy away from the server. */}
+          {d.backup && !(d.backup.lastDriveAt && Date.now() - new Date(d.backup.lastDriveAt).getTime() < 2 * 86400000) && (!d.backup.lastDownloadAt || Date.now() - new Date(d.backup.lastDownloadAt).getTime() > 7 * 86400000) && (
             <Notice kind="warning">
               {d.backup.lastDownloadAt ? 'No backup has been downloaded for over a week.' : 'No backup of the shop records has been downloaded yet.'} <Link href="/system/">Download one now</Link>
             </Notice>

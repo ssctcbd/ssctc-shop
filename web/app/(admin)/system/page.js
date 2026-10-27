@@ -11,6 +11,9 @@ const megabytes = (bytes) => `${(bytes / 1048576).toFixed(1)} MB`;
 export default function SystemPage() {
   const { data: s, error, reload } = useFetch('/system/status');
   const downloadAge = s ? daysSince(s.backup.lastDownload?.at) : null;
+  const drive = s?.backup.lastRun?.drive;
+  // A copy in Google Drive is away from the server, as a download is.
+  const driveAge = drive && drive.ok ? daysSince(drive.at) : null;
   const problems = s ? s.checks.filter((c) => c.problems > 0) : [];
 
   return (
@@ -30,7 +33,9 @@ export default function SystemPage() {
         <div className="cash-columns">
           <div className="card">
             <h2>Backup</h2>
-            {downloadAge === null ? (
+            {driveAge !== null && driveAge <= 1 ? (
+              <Notice kind="success">Last night&apos;s backup is in Google Drive ({formatDateTime(drive.at)}). A download is still useful now and then, to keep a copy on the shop computer.</Notice>
+            ) : downloadAge === null ? (
               <Notice kind="warning">No backup has been downloaded yet. If the hosting account is lost, every sale and every due is lost with it.</Notice>
             ) : downloadAge > 7 ? (
               <Notice kind="warning">The last backup was downloaded {downloadAge} days ago. Download one every week.</Notice>
@@ -44,7 +49,11 @@ export default function SystemPage() {
               </div>
               <div>
                 <span>Last automatic backup on the server</span>
-                {!s.backup.lastRun ? 'Not set up yet' : s.backup.lastRun.ok ? formatDateTime(s.backup.lastRun.at) : `Failed ${formatDateTime(s.backup.lastRun.at)}: ${s.backup.lastRun.error}`}
+                {!s.backup.lastRun ? (s.backup.scheduled ? 'Set up; has not run yet' : 'Not set up yet') : s.backup.lastRun.ok ? formatDateTime(s.backup.lastRun.at) : `Failed ${formatDateTime(s.backup.lastRun.at)}: ${s.backup.lastRun.error}`}
+              </div>
+              <div>
+                <span>Copy in Google Drive</span>
+                {!s.backup.drive ? 'Not connected' : !drive ? 'Connected; no copy yet' : drive.ok ? formatDateTime(drive.at) : `Failed ${formatDateTime(drive.at)}: ${drive.error}`}
               </div>
             </div>
             <a className="btn btn-primary" href={`${API_BASE}/system/backup`} onClick={() => setTimeout(reload, 4000)}>

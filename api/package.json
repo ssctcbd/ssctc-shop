@@ -13,6 +13,7 @@
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed.js",
     "backup": "node scripts/backup.js",
+    "gdrive-setup": "node scripts/gdrive-setup.js",
     "restore": "node scripts/restore.js",
     "prune": "node scripts/prune.js",
     "launch-check": "node scripts/launch-check.js",

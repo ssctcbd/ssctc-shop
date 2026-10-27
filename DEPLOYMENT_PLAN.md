@@ -155,6 +155,42 @@ As built (Milestone 6):
 - If cron cannot be made to work, the weekly download below is still a
   complete backup routine on its own.
 
+### Nightly backup to Google Drive (2026-10-27)
+
+A cron job cannot see the variables set on the Node.js page, so the nightly
+backup is not run with `npm run backup` there. The cron job asks the running
+application to do it, with a secret:
+
+```
+curl -fsS -X POST -H "X-Backup-Key: <BACKUP_CRON_KEY>" https://shop.sscomputertrainingcentre.com/api/v1/system/scheduled-backup
+```
+
+The application dumps the database to `BACKUP_DIR`, uploads the same file to
+the "SSCTC Shop backups" folder in Google Drive, and thins old copies in both
+places (14 days, then 8 weeks). A failure answers HTTP 502 with the reason, so
+cron mails it, and shows on the dashboard and the Backup & health screen.
+
+One-time setup:
+
+1. **Google Cloud** (console.cloud.google.com, logged in as the shop's Google
+   account): create a project; enable **Google Drive API**; under **Google Auth
+   Platform** fill in the app name and emails with audience **External**, then
+   on **Audience** press **Publish app** (otherwise the token stops working
+   after 7 days); under **Clients** create a client of type **Desktop app** and
+   copy its client ID and secret. The only access asked for is `drive.file`:
+   the application sees only the files it made.
+2. **On the PC**, in `api`: `npm run gdrive-setup`. Paste the ID and secret,
+   allow access in the browser (Google may warn that the app is not verified:
+   Advanced → continue). It creates the folder and prints four lines.
+3. **cPanel → Node.js app → Edit**, environment variables: the four `GDRIVE_*`
+   lines, `BACKUP_DIR=/home/<user>/ssctc-shop-backups` (create the folder
+   first) and `BACKUP_CRON_KEY` (a random string of 32+ characters). Save, Restart.
+4. **cPanel → Cron Jobs**: once a day, after closing, the curl line above.
+   Check the server's time zone (cPanel shows it on the Cron Jobs page).
+5. Run the curl line once by hand (cPanel Terminal, or the cron "every minute"
+   setting for one minute), then open Backup & health: "Copy in Google Drive"
+   shows the time.
+
 ## 6. Backup and restore
 
 This system holds the shop's sales, dues and payment records. Losing it means
