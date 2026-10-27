@@ -9,7 +9,7 @@ const { normalizePhone } = require('../../lib/phone');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { recalculateCustomer } = require('../../lib/ledger');
 const { applyAdvanceMovement } = require('../../lib/advance');
-const { lockCashDrawer } = require('../../lib/cash');
+const { lockOpenDrawer } = require('../../lib/cash');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { documentDate } = require('../../lib/dates');
 const { conflict, notFound, badRequest } = require('../../lib/errors');
@@ -286,7 +286,7 @@ router.post('/customers/:id/reset-pin', staffWith('customers.reset_pin'), idPara
 
 // What the customer already owed before the system started. Stored as a sale
 // with no lines (sale_type = 'opening_due'), so it is collected like any other due.
-router.post('/customers/:id/opening-balance', staffWith('customers.manage'), idParam, validateBody(openingDueSchema), async (req, res) => {
+router.post('/customers/:id/opening-balance', staffWith('customers.opening_due'), idParam, validateBody(openingDueSchema), async (req, res) => {
   const { amount, date, note } = req.body;
   const sale = await transaction(async (conn) => {
     const [rows] = await conn.execute('SELECT name, phone, is_active FROM customers WHERE id = ? FOR UPDATE', [req.id]);
@@ -350,7 +350,7 @@ router.post('/customers/:id/advance-deposit', staffWith('payments.create'), idPa
 
   try {
     await transaction(async (conn) => {
-      await lockCashDrawer(conn);
+      await lockOpenDrawer(conn);
       const [rows] = await conn.execute('SELECT is_active FROM customers WHERE id = ? FOR UPDATE', [req.id]);
       if (!rows[0]) throw notFound('Customer not found.');
       if (!rows[0].is_active) throw conflict('This customer is inactive.');
@@ -385,7 +385,7 @@ router.post('/customers/:id/advance-refund', staffWith('payments.void'), idParam
 
   try {
     await transaction(async (conn) => {
-      await lockCashDrawer(conn);
+      await lockOpenDrawer(conn);
       const [rows] = await conn.execute('SELECT id FROM customers WHERE id = ? FOR UPDATE', [req.id]);
       if (!rows[0]) throw notFound('Customer not found.');
       const receiptNo = await nextDocumentNumber(conn, 'receipt');

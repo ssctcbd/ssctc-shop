@@ -46,6 +46,7 @@ function createApp() {
   v1.use(require('./modules/payments/routes'));
   v1.use(require('./modules/expenses/routes'));
   v1.use(require('./modules/cash/routes'));
+  v1.use(require('./modules/commission/routes'));
   v1.use(require('./modules/dashboard/routes'));
   v1.use(require('./modules/reports/routes'));
   v1.use(require('./modules/settings/routes'));

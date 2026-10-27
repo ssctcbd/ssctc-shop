@@ -13,20 +13,23 @@ INSERT INTO roles (id, code, name) VALUES
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 -- Permissions (PROJECT_PLAN.md §4.13, Decision D4) ----------------------------
--- Owner: everything. Staff: sell, record payments, view stock, record expenses.
+-- Owner: everything. Staff: sell, record payments, view stock, record expenses,
+-- open and close the cash day, and see their own commission.
 
 INSERT IGNORE INTO role_permissions (role_id, permission) VALUES
   (1, 'dashboard.view'),
   (1, 'catalog.view'),        (1, 'catalog.manage'),     (1, 'catalog.edit_price'),
   (1, 'inventory.view'),      (1, 'inventory.adjust'),
   (1, 'customers.view'),      (1, 'customers.manage'),   (1, 'customers.reset_pin'),
+  (1, 'customers.opening_due'),
   (1, 'sales.view'),          (1, 'sales.create'),       (1, 'sales.void'),
   (1, 'sales.edit_price'),    (1, 'sales.backdate'),     (1, 'sales.return'),
   (1, 'payments.view'),       (1, 'payments.create'),    (1, 'payments.verify'),
   (1, 'payments.void'),
   (1, 'suppliers.view'),      (1, 'suppliers.manage'),   (1, 'purchases.manage'),
   (1, 'expenses.view'),       (1, 'expenses.create'),    (1, 'expenses.manage'),
-  (1, 'cash.view'),           (1, 'cash.close'),
+  (1, 'cash.view'),           (1, 'cash.open'),          (1, 'cash.close'),
+  (1, 'cash.receive'),        (1, 'commission.manage'),
   (1, 'reports.view'),        (1, 'reports.financial'),
   (1, 'users.manage'),        (1, 'settings.manage'),    (1, 'audit.view'),
   (1, 'system.backup'),
@@ -38,7 +41,8 @@ INSERT IGNORE INTO role_permissions (role_id, permission) VALUES
   (2, 'sales.view'),          (2, 'sales.create'),
   (2, 'payments.view'),       (2, 'payments.create'),
   (2, 'expenses.view'),       (2, 'expenses.create'),
-  (2, 'cash.view');
+  (2, 'cash.view'),           (2, 'cash.open'),          (2, 'cash.close'),
+  (2, 'commission.view_own');
 
 -- Settings -------------------------------------------------------------------
 -- INSERT IGNORE: values the Owner has already changed are never overwritten.
@@ -49,7 +53,7 @@ INSERT IGNORE INTO settings (setting_key, value, description) VALUES
   ('shop.address',           '"Baunia, Kalibari, Dhaka"', 'Address on invoices'),
   ('shop.phone',             '""', 'Phone number on invoices'),
   ('shop.email',             '""', 'Email on invoices'),
-  ('shop.logo_url',          '"/brand/ssctc-logo.png"', 'Logo used on the navbar and invoice header'),
+  ('shop.logo_url',          '"/brand/ssctc-mark.svg"', 'Logo used on the navbar and invoice header'),
   ('shop.favicon_url',       '"/brand/favicon.svg"', 'Browser tab icon'),
   ('shop.currency_symbol',   '"৳"', 'Currency symbol'),
   ('shop.timezone',          '"Asia/Dhaka"', 'Time zone used to display dates'),

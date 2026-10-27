@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { METHOD_LABELS } from '@/components/Bill';
+import { useDialogs } from '@/components/Dialogs';
 import Pager from '@/components/Pager';
 import { Field, Notice } from '@/components/Form';
 import { api } from '@/lib/api';
@@ -12,6 +13,7 @@ import { toQuery, useFetch } from '@/lib/useFetch';
 
 export default function PaymentsPage() {
   const can = useCan();
+  const { askReason } = useDialogs();
   const [filters, setFilters] = useState({ search: '', method: '', kind: '', verified: '', status: 'all', from: '', to: '', page: 1 });
   const [searchText, setSearchText] = useState('');
   const [actionError, setActionError] = useState('');
@@ -34,10 +36,9 @@ export default function PaymentsPage() {
       setActionError(err.message);
     }
   }
-  function voidPayment(p) {
-    const reason = window.prompt(`Why is receipt ${p.receiptNo} (${formatMoney(p.amount)}) being voided?`);
-    if (reason && reason.trim().length >= 3) act(`/payments/${p.id}/void`, { reason: reason.trim() });
-    else if (reason !== null) setActionError('Write a reason of at least 3 characters to void a payment.');
+  async function voidPayment(p) {
+    const reason = await askReason({ title: 'Void payment', message: `Why is receipt ${p.receiptNo} (${formatMoney(p.amount)}) being voided?`, confirmLabel: 'Void payment' });
+    if (reason) act(`/payments/${p.id}/void`, { reason });
   }
 
   return (

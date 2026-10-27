@@ -288,7 +288,7 @@ a:hover {
   padding: 18px 18px 14px;
   border-bottom: 1px solid var(--line);
 }
-.sidebar-brand span {
+.sidebar-brand > span {
   display: block;
   margin-top: 8px;
   font-size: 11px;
@@ -1054,7 +1054,7 @@ select.btn {
   padding-bottom: 14px;
   border-bottom: 2px solid #000;
 }
-.invoice-head span {
+.invoice-head > div span {
   display: block;
 }
 .invoice-shop {
@@ -1356,4 +1356,165 @@ a.btn.disabled {
     box-shadow: none;
     overflow: visible;
   }
+}
+
+/* ---- the shop's own confirm and reason boxes (components/Dialogs.js) ---- */
+
+dialog.modal.modal-ask {
+  width: min(440px, calc(100vw - 24px));
+}
+.ask-message {
+  margin-bottom: 14px;
+  color: var(--ink-700);
+  line-height: 1.5;
+}
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+@media (max-width: 560px) {
+  .ask-actions .btn {
+    flex: 1;
+  }
+}
+
+/* ---- POS: All / Products / Services and the item list ---- */
+
+.kind-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.kind-tab {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-700);
+  font: 600 14px/1 var(--font);
+  cursor: pointer;
+}
+.kind-tab:hover {
+  background: var(--brand-50);
+  border-color: var(--brand-100);
+}
+.kind-tab.active {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+  color: #fff;
+}
+.kind-tab:focus-visible {
+  outline: 3px solid var(--brand-100);
+  outline-offset: 1px;
+}
+.kind-count {
+  font-weight: 400;
+  opacity: 0.85;
+}
+.combo {
+  position: relative;
+}
+.combo-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.combo-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--ink-900);
+  cursor: pointer;
+}
+.combo-option[aria-selected='true'] {
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+.combo-hint {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+@media (max-width: 560px) {
+  .combo-option {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .combo-list {
+    max-height: 50vh;
+  }
+}
+
+/* ---- login: forgot password, recovery codes ---- */
+
+.auth-forgot {
+  margin-top: 14px;
+  text-align: center;
+}
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+  padding: 14px;
+  list-style: none;
+  border: 1px dashed var(--ink-300);
+  border-radius: var(--radius);
+  background: var(--brand-50);
+  font: 600 16px/1.4 ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+@media (max-width: 420px) {
+  .recovery-codes {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- logo: the mark and the shop name ---- */
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.logo img {
+  display: block;
+  flex-shrink: 0;
+}
+.logo-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18em;
+}
+.logo-name b {
+  font: 900 1em/1 'Arial Black', 'Segoe UI', Arial, sans-serif;
+  color: var(--brand-600);
+  letter-spacing: 0.01em;
+}
+.logo-name span {
+  font: 400 0.78em/1 'Segoe UI', Arial, sans-serif;
+  color: var(--ink-900);
+  letter-spacing: 0.16em;
 }

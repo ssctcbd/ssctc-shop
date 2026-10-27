@@ -67,6 +67,12 @@ Plans: [PROJECT_PLAN.md](PROJECT_PLAN.md) · [DATABASE_SCHEMA.md](DATABASE_SCHEM
 - Housekeeping job for expired sessions; a read-only launch check.
 - A short user guide in Bangla.
 
+## What exists (2026-10-27 — Commission and the cash day)
+
+- The cash day: counted and opened in the morning (by Staff or Owner), handed over at night, and the Owner takes what they want from the drawer; the rest is the next morning's starting cash. Nothing that moves money can be recorded while the day is closed, or while yesterday is still open.
+- Staff commission: rates on services and product categories (a percentage, or a fixed amount per unit), earned by whoever records the sale, taken back by a void or return; each staff member sees their own, the Owner sees everyone's and pays it. Profit reports take it off as a cost.
+- Owner recovery codes for a forgotten password; "Shop login"; opening due for the Owner only; portal PIN sent on WhatsApp; the shop's own confirm and reason boxes; All / Products / Services on the POS. See CHANGE_NOTES.md.
+
 Not done, and not something this repository can do: the remaining hosting checks
 and the deployment itself. See DEPLOYMENT_PLAN.md §8 to §10.
 
@@ -133,5 +139,5 @@ Without a reachable server those tests are skipped and only unit tests run.
 Not done yet. Follow [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md): the hosting checks in
 §2 come first. `web/out` is what gets uploaded for the site; `api/` (without
 `node_modules` and `.env`) is the Node.js application. The files in `api/migrations/`
-(in number order, 001 to 004) and `api/seeds/001_base_data.sql` can also be run
+(in number order, 001 to 005) and `api/seeds/001_base_data.sql` can also be run
 directly in phpMyAdmin.

@@ -4,7 +4,7 @@ const { validateBody, validateQuery, idParam } = require('../../middleware/valid
 const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { nextDocumentNumber } = require('../../lib/documents');
-const { lockCashDrawer } = require('../../lib/cash');
+const { lockOpenDrawer } = require('../../lib/cash');
 const { dayStart, dayEnd, documentDate, today } = require('../../lib/dates');
 const { notFound, badRequest, conflict, forbidden } = require('../../lib/errors');
 const { z, id, positiveMoney, optionalText, requiredText, flag, day, paging } = require('../../lib/schemas');
@@ -139,7 +139,7 @@ router.post('/expenses', staffWith('expenses.create'), validateBody(expenseSchem
 
   try {
     await transaction(async (conn) => {
-      await lockCashDrawer(conn);
+      await lockOpenDrawer(conn);
       const [categories] = await conn.execute('SELECT name, is_active FROM expense_categories WHERE id = ?', [b.categoryId]);
       if (!categories[0]) throw fieldError('categoryId', 'Category not found.');
       if (!categories[0].is_active) throw fieldError('categoryId', `"${categories[0].name}" is no longer used.`);
@@ -168,7 +168,7 @@ router.post('/expenses', staffWith('expenses.create'), validateBody(expenseSchem
 // An expense entered wrongly. It stays in the history, marked void.
 router.post('/expenses/:id/void', staffWith('expenses.manage'), idParam, validateBody(voidSchema), async (req, res) => {
   await transaction(async (conn) => {
-    await lockCashDrawer(conn);
+    await lockOpenDrawer(conn);
     const [rows] = await conn.execute('SELECT * FROM expenses WHERE id = ? FOR UPDATE', [req.id]);
     const expense = rows[0];
     if (!expense) throw notFound('Expense not found.');

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import CommissionRate, { describeRate, rateBody } from '@/components/CommissionRate';
 import Modal from '@/components/Modal';
 import { Checkbox, Field, Notice, SubmitButton } from '@/components/Form';
 import { api } from '@/lib/api';
@@ -21,9 +22,11 @@ function ServiceForm({ service, onDone, onClose }) {
       priceEditable: service?.priceEditable ?? true,
       isActive: service?.isActive ?? true,
       sortOrder: service?.sortOrder ?? 0,
+      commissionType: service?.commissionType || '',
+      commissionValue: service?.commissionType ? String(Number(service.commissionValue)) : '',
     },
     async (v) => {
-      const body = { serviceType: v.serviceType, name: v.name, unit: v.unit, defaultPrice: v.defaultPrice, priceEditable: v.priceEditable, sortOrder: Number(v.sortOrder) || 0 };
+      const body = { serviceType: v.serviceType, name: v.name, unit: v.unit, defaultPrice: v.defaultPrice, priceEditable: v.priceEditable, sortOrder: Number(v.sortOrder) || 0, ...rateBody(v) };
       if (editing) await api.put(`/services/${service.id}`, { ...body, isActive: v.isActive });
       else await api.post('/services', body);
       onDone();
@@ -47,6 +50,7 @@ function ServiceForm({ service, onDone, onClose }) {
           <Field label="Rate (৳ per unit)" inputMode="decimal" required value={form.values.defaultPrice} error={form.fields.defaultPrice} onChange={form.set('defaultPrice')} />
           <Field label="Sort order" type="number" min={0} max={9999} value={form.values.sortOrder} error={form.fields.sortOrder} onChange={form.set('sortOrder')} />
         </div>
+        <CommissionRate form={form} unit={form.values.unit || 'unit'} />
         <Checkbox label="Price can be changed at the counter" hint="Turn off to always charge the listed rate." checked={form.values.priceEditable} onChange={form.set('priceEditable')} />
         {editing && <Checkbox label="Active" hint="Inactive services cannot be sold." checked={form.values.isActive} onChange={form.set('isActive')} />}
         <div className="form-actions">
@@ -91,6 +95,7 @@ export default function ServicesPage() {
               <th>Type</th>
               <th className="num">Rate</th>
               <th>Counter price</th>
+              <th>Commission</th>
               <th>Status</th>
               <th />
             </tr>
@@ -106,6 +111,7 @@ export default function ServicesPage() {
                   {formatMoney(s.defaultPrice)} <span className="sub">per {s.unit}</span>
                 </td>
                 <td>{s.priceEditable ? 'Can be changed' : 'Fixed'}</td>
+                <td>{describeRate(s.commissionType, s.commissionValue, s.unit)}</td>
                 <td>{s.isActive ? <span className="badge badge-ok">Active</span> : <span className="badge badge-muted">Inactive</span>}</td>
                 <td className="num">
                   {can('catalog.manage') && (

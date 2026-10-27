@@ -160,6 +160,7 @@ router.get('/reports/profit-loss', staffWith('reports.financial'), validateQuery
     line('Net sales', f.netSales, 'subtotal'),
     line('Cost of the goods sold', -f.cost),
     line('Gross profit', f.grossProfit, 'subtotal'),
+    line('Staff commission', -f.commission),
     ...expenses.map((e) => line(`Expense: ${e.name}`, -toPaisa(e.amount))),
     line('Total expenses', -totalExpenses, 'subtotal'),
   ];
@@ -172,9 +173,10 @@ router.get('/reports/profit-loss', staffWith('reports.financial'), validateQuery
       { key: 'amount', label: 'Amount', type: 'money' },
     ],
     rows,
-    totals: { label: 'Net profit', amount: fromSignedPaisa(f.grossProfit - totalExpenses) },
+    totals: { label: 'Net profit', amount: fromSignedPaisa(f.grossProfit - f.commission - totalExpenses) },
     notes: [
-      'Gross profit = net sales − cost of the goods sold. Net profit = gross profit − expenses.',
+      'Gross profit = net sales − cost of the goods sold. Net profit = gross profit − staff commission − expenses.',
+      'Staff commission is what the sales in this period earned, whether or not it has been paid out yet.',
       'Sales are counted by the date of the bill, whether or not the money has been collected. A return is taken off the bill it belongs to.',
       'Cost is the cost price recorded when each item was sold. Services have no cost.',
       ...(f.uncostedLines > 0 ? [`${f.uncostedLines} product line(s) in this period were sold with no cost price recorded, so the profit shown is too high. Enter cost prices on the Products screen.`] : []),
@@ -304,7 +306,7 @@ router.get('/reports/cash-closings', staffWith('reports.view'), validateQuery(z.
   const rows = await query(
     `SELECT DATE_FORMAT(c.closing_date, '%Y-%m-%d') AS date, c.opening_cash AS opening,
             c.cash_sales + c.cash_dues_collected + c.cash_advance_deposits + c.cash_voids_in AS cash_in,
-            c.cash_expenses + c.cash_supplier_paid + c.cash_refunds AS cash_out,
+            c.cash_expenses + c.cash_supplier_paid + c.cash_commission_paid + c.cash_refunds AS cash_out,
             c.expected_closing_cash AS expected, c.actual_closing_cash AS counted, c.difference, c.cash_withdrawn AS withdrawn,
             c.actual_closing_cash - c.cash_withdrawn AS left_in, u.name AS closed_by, c.note
        FROM daily_cash_closings c JOIN users u ON u.id = c.closed_by
@@ -319,7 +321,7 @@ router.get('/reports/cash-closings', staffWith('reports.view'), validateQuery(z.
     { key: 'expected', label: 'Expected', type: 'money' },
     { key: 'counted', label: 'Counted', type: 'money' },
     { key: 'difference', label: 'Difference', type: 'money' },
-    { key: 'withdrawn', label: 'Taken out', type: 'money' },
+    { key: 'withdrawn', label: 'Owner took', type: 'money' },
     { key: 'left_in', label: 'Left in drawer', type: 'money' },
     { key: 'closed_by', label: 'Closed by', type: 'text' },
     { key: 'note', label: 'Note', type: 'text' },

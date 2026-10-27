@@ -1,4 +1,4 @@
-const { resetDatabase, startApp } = require('./helpers/setup');
+const { resetDatabase, startApp, openCashDay } = require('./helpers/setup');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -27,6 +27,7 @@ test.before(async () => {
   staff = app.client();
   await owner.post('/auth/login', OWNER);
   await staff.post('/auth/login', STAFF);
+  await openCashDay(owner);
 });
 
 test.after(async () => {

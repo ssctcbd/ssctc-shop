@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useDialogs } from '@/components/Dialogs';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
 import { Field, Notice, SubmitButton } from '@/components/Form';
@@ -116,6 +117,7 @@ function CategoriesDialog({ categories, onChanged, onClose }) {
 
 export default function ExpensesPage() {
   const can = useCan();
+  const { askReason } = useDialogs();
   const manage = can('expenses.manage');
   const [filters, setFilters] = useState({ search: '', categoryId: '', method: '', status: 'all', from: '', to: '', page: 1 });
   const [searchText, setSearchText] = useState('');
@@ -135,12 +137,11 @@ export default function ExpensesPage() {
   const setFilter = (name) => (event) => setFilters((f) => ({ ...f, [name]: event.target.value, page: 1 }));
 
   async function voidExpense(e) {
-    const reason = window.prompt(`Why is ${e.voucherNo} (${formatMoney(e.amount)}) being voided?`);
+    const reason = await askReason({ title: 'Void expense', message: `Why is ${e.voucherNo} (${formatMoney(e.amount)}) being voided?`, confirmLabel: 'Void expense' });
     if (reason === null) return;
-    if (reason.trim().length < 3) return setActionError('Write a reason of at least 3 characters to void an expense.');
     setActionError('');
     try {
-      await api.post(`/expenses/${e.id}/void`, { reason: reason.trim() });
+      await api.post(`/expenses/${e.id}/void`, { reason });
       reload();
     } catch (err) {
       setActionError(err.message);

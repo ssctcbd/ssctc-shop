@@ -3,8 +3,8 @@ const { query, transaction } = require('../../db/pool');
 const { validateBody, idParam } = require('../../middleware/validate');
 const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
-const { conflict, notFound } = require('../../lib/errors');
-const { z, money, requiredText, flag } = require('../../lib/schemas');
+const { conflict, notFound, badRequest } = require('../../lib/errors');
+const { z, money, requiredText, flag, commissionType, commissionValue, commissionProblem } = require('../../lib/schemas');
 
 // Services are the shop's rate list: printing, photocopy, online applications
 // and anything else sold by the page, copy or job. The Owner adds new ones freely.
@@ -21,6 +21,9 @@ const createSchema = z.strictObject({
   defaultPrice: money,
   priceEditable: flag.default(true),
   sortOrder: sortOrder.default(0),
+  // Staff commission on each sale of this service.
+  commissionType: commissionType.default(null),
+  commissionValue: commissionValue.default('0.00'),
 });
 
 const updateSchema = z.strictObject({
@@ -31,6 +34,8 @@ const updateSchema = z.strictObject({
   priceEditable: flag.optional(),
   isActive: flag.optional(),
   sortOrder: sortOrder.optional(),
+  commissionType: commissionType.optional(),
+  commissionValue: commissionValue.optional(),
 });
 
 const toApi = (row) => ({
@@ -42,7 +47,11 @@ const toApi = (row) => ({
   priceEditable: Boolean(row.price_editable),
   isActive: Boolean(row.is_active),
   sortOrder: row.sort_order,
+  commissionType: row.commission_type,
+  commissionValue: row.commission_value,
 });
+
+const rateError = (fields) => badRequest('Please check the highlighted fields.', { fields });
 
 const duplicateName = () => conflict('Please check the highlighted fields.', { fields: { name: 'A service with this name already exists.' } });
 
@@ -53,22 +62,26 @@ router.get('/services', staffWith('catalog.view'), async (_req, res) => {
 
 router.post('/services', staffWith('catalog.manage'), validateBody(createSchema), async (req, res) => {
   const b = req.body;
+  const problem = commissionProblem(b.commissionType, b.commissionValue);
+  if (problem) throw rateError(problem);
   const serviceId = await transaction(async (conn) => {
     let result;
     try {
-      [result] = await conn.execute('INSERT INTO services (service_type, name, unit, default_price, price_editable, sort_order) VALUES (?, ?, ?, ?, ?, ?)', [
+      [result] = await conn.execute('INSERT INTO services (service_type, name, unit, default_price, price_editable, sort_order, commission_type, commission_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
         b.serviceType,
         b.name,
         b.unit,
         b.defaultPrice,
         Number(b.priceEditable),
         b.sortOrder,
+        b.commissionType,
+        b.commissionType ? b.commissionValue : '0.00',
       ]);
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') throw duplicateName();
       throw err;
     }
-    await writeAudit({ conn, actorUserId: req.user.id, action: 'service.create', entityType: 'service', entityId: result.insertId, newValues: { name: b.name, defaultPrice: b.defaultPrice }, ip: req.ip });
+    await writeAudit({ conn, actorUserId: req.user.id, action: 'service.create', entityType: 'service', entityId: result.insertId, newValues: { name: b.name, defaultPrice: b.defaultPrice, ...(b.commissionType ? { commission: { type: b.commissionType, value: b.commissionValue } } : {}) }, ip: req.ip });
     return result.insertId;
   });
   const rows = await query('SELECT * FROM services WHERE id = ?', [serviceId]);
@@ -82,6 +95,12 @@ router.put('/services/:id', staffWith('catalog.manage'), idParam, validateBody(u
     const current = rows[0];
     if (!current) throw notFound('Service not found.');
 
+    // No rate means a value of zero, so switching the rate off clears it.
+    const rateType = b.commissionType === undefined ? current.commission_type : b.commissionType;
+    const rateValue = rateType ? (b.commissionValue ?? current.commission_value) : '0.00';
+    const problem = commissionProblem(rateType, rateValue);
+    if (problem) throw rateError(problem);
+
     const columns = {
       service_type: b.serviceType,
       name: b.name,
@@ -90,7 +109,10 @@ router.put('/services/:id', staffWith('catalog.manage'), idParam, validateBody(u
       price_editable: b.priceEditable === undefined ? undefined : Number(b.priceEditable),
       is_active: b.isActive === undefined ? undefined : Number(b.isActive),
       sort_order: b.sortOrder,
+      commission_type: b.commissionType,
+      commission_value: b.commissionType === undefined && b.commissionValue === undefined ? undefined : rateValue,
     };
+    // undefined = left out; null (no commission rate) is a real value.
     const changed = Object.entries(columns).filter(([column, value]) => value !== undefined && String(value) !== String(current[column]));
     if (changed.length === 0) return;
 
@@ -104,7 +126,7 @@ router.put('/services/:id', staffWith('catalog.manage'), idParam, validateBody(u
     await writeAudit({
       conn,
       actorUserId: req.user.id,
-      action: changed.some(([column]) => column === 'default_price') ? 'service.rate_change' : 'service.update',
+      action: changed.some(([column]) => column === 'default_price' || column.startsWith('commission_')) ? 'service.rate_change' : 'service.update',
       entityType: 'service',
       entityId: req.id,
       oldValues: Object.fromEntries(changed.map(([column]) => [column, current[column]])),

@@ -16,4 +16,19 @@ const changePasswordSchema = z.strictObject({
   newPassword,
 });
 
-module.exports = { username, newPassword, loginSchema, changePasswordSchema };
+// Recovery codes are shown as XXXXX-XXXXX; spaces, dashes and case are ignored.
+const recoveryCode = z
+  .string()
+  .trim()
+  .max(40)
+  .transform((v) => v.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+
+const recoverSchema = z.strictObject({
+  username: z.string().trim().toLowerCase().min(1).max(60),
+  code: recoveryCode,
+  newPassword,
+});
+
+const recoveryCodesSchema = z.strictObject({ currentPassword: z.string().min(1).max(200) });
+
+module.exports = { username, newPassword, loginSchema, changePasswordSchema, recoverSchema, recoveryCodesSchema };

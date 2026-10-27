@@ -1,6 +1,6 @@
 /**
  * Checks that the stored balances still agree with the records behind them.
- * Every figure the system keeps (stock, dues, advance, payables) is derived
+ * Every figure the system keeps (stock, dues, advance, payables, commission) is derived
  * from a ledger; a difference here is a bug to investigate, never a number to
  * overwrite. Used by the System screen, the launch check and the restore drill.
  *
@@ -55,6 +55,13 @@ const CHECKS = [
     label: "Every supplier's payable equals their unpaid bills",
     sql: `SELECT COUNT(*) AS n FROM suppliers s
            WHERE s.current_payable <> (SELECT COALESCE(SUM(pu.due_amount), 0) FROM purchases pu WHERE pu.supplier_id = s.id AND pu.status = 'active')`,
+  },
+  {
+    key: 'commission',
+    label: "Every bill's commission equals what its lines earned",
+    sql: `SELECT COUNT(*) AS n FROM sales s
+           WHERE (SELECT COALESCE(SUM(i.commission_amount), 0) FROM sale_items i WHERE i.sale_id = s.id)
+              <> (SELECT COALESCE(SUM(e.amount), 0) FROM staff_commission_entries e WHERE e.sale_id = s.id AND e.entry_type = 'sale')`,
   },
 ];
 

@@ -1,6 +1,7 @@
-const { resetDatabase, startApp } = require('./helpers/setup');
+const { resetDatabase, startApp, openCashDay } = require('./helpers/setup');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { cashDate } = require('../src/lib/cash');
 const crypto = require('node:crypto');
 
 const OWNER = { username: 'owner', password: 'owner-password-1' };
@@ -38,6 +39,7 @@ test.before(async () => {
   staff = app.client();
   await owner.post('/auth/login', OWNER);
   await staff.post('/auth/login', STAFF);
+  await openCashDay(owner);
 
   ids.category = (await owner.post('/categories', { name: 'Gadgets' })).body.category.id;
   ids.mouse = (await owner.post('/products', { categoryId: ids.category, sku: 'MOUSE', name: 'USB Mouse', price: 500, costPrice: 300, openingStock: 20 })).body.product.id;
@@ -92,7 +94,7 @@ it("the Owner's dashboard shows today's sales, money in, profit, dues, payables,
   // 650 + 1000 + 50, less the 500 returned. The voided sale and the old bill are not today's.
   assert.deepEqual(d.sales, { bills: 3, netSales: '1200.00', newDues: '100.00' });
   // Cost: one mouse (300) + one mouse kept (300) + pens (0).
-  assert.deepEqual(d.profit, { grossProfit: '600.00', expenses: '50.00', netProfit: '550.00', uncostedLines: 1 });
+  assert.deepEqual(d.profit, { grossProfit: '600.00', commission: '0.00', expenses: '50.00', netProfit: '550.00', uncostedLines: 1 });
   // 650 + 400 + 50 at the counter, 300 collected. Unverified bKash is not money in yet.
   assert.deepEqual(d.payments, { collectedToday: '1400.00', unverifiedCount: 1, unverifiedAmount: '200.00' });
   assert.equal(d.expensesToday, '50.00');
@@ -100,7 +102,8 @@ it("the Owner's dashboard shows today's sales, money in, profit, dues, payables,
   assert.deepEqual(d.dues.top.map((c) => [c.name, c.currentDue]), [['Karim Mia', '700.00'], ['Salma Begum', '100.00']]);
   assert.deepEqual(d.payables, { suppliers: 1, total: '3000.00' });
   assert.equal(d.lowStock, 1);
-  assert.deepEqual(d.cash, { hasOpening: false, expected: '1350.00', closedToday: false });
+  // The day was opened with an empty drawer.
+  assert.deepEqual(d.cash, { status: 'open', carried: null, lastClosingDate: null, openingDate: cashDate(), stale: false, expected: '1350.00' });
   assert.equal(d.recentSales.length, 5);
   assert.equal(d.recentSales.filter((s) => s.status === 'void').length, 1);
 });
@@ -162,6 +165,7 @@ it('profit and loss: net profit is gross profit less expenses, and missing cost 
   assert.equal(amount('Net sales'), '2200.00');
   assert.equal(amount('Cost of the goods sold'), '-1200.00'); // four mice kept, at 300
   assert.equal(amount('Gross profit'), '1000.00');
+  assert.equal(amount('Staff commission'), '0.00'); // no rates set in this file
   assert.equal(amount('Expense: Rent'), '-500.00');
   assert.equal(amount('Expense: Tea/Snacks'), '-50.00');
   assert.equal(amount('Total expenses'), '-550.00');
@@ -212,11 +216,12 @@ it('stock levels, low stock and movements agree with the products and the ledger
 it('cash closings appear in their report', async () => {
   const d = (await owner.get('/cash-register/current')).body;
   assert.equal(d.expectedCash, '1350.00');
-  assert.equal((await owner.post('/cash-register/close', { openingCash: '500', expectedCash: '1850.00', actualCash: '1850', withdrawn: '1500' })).status, 201);
+  assert.equal((await staff.post('/cash-register/close', { expectedCash: '1350.00', actualCash: '1350' })).status, 201);
+  assert.equal((await owner.post('/cash-register/receive', { amount: '1000' })).status, 201);
   const r = await report(owner, `cash-closings?${month}`);
-  assert.deepEqual(r.rows.map((x) => [x.date, x.opening, x.cash_in, x.cash_out, x.expected, x.counted, x.difference, x.left_in, x.closed_by]), [[TODAY, '500.00', '1400.00', '50.00', '1850.00', '1850.00', '0.00', '350.00', 'Owner']]);
+  assert.deepEqual(r.rows.map((x) => [x.date, x.opening, x.cash_in, x.cash_out, x.expected, x.counted, x.difference, x.withdrawn, x.left_in, x.closed_by]), [[cashDate(), '0.00', '1400.00', '50.00', '1350.00', '1350.00', '0.00', '1000.00', '350.00', 'Rahim']]);
   const dash = (await owner.get('/dashboard')).body.cash;
-  assert.deepEqual(dash, { hasOpening: true, expected: '350.00', closedToday: true });
+  assert.deepEqual(dash, { status: 'closed', carried: '350.00', lastClosingDate: cashDate() });
 });
 
 it('every report downloads as CSV with the same rows and a totals line', async () => {

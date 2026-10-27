@@ -1,4 +1,4 @@
-const { resetDatabase, startApp } = require('./helpers/setup');
+const { resetDatabase, startApp, openCashDay } = require('./helpers/setup');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -31,6 +31,7 @@ test.before(async () => {
   staff = app.client();
   await owner.post('/auth/login', OWNER);
   await staff.post('/auth/login', STAFF);
+  await openCashDay(owner);
 
   ids.category = (await owner.post('/categories', { name: 'Gadgets' })).body.category.id;
   ids.pendrive = (await owner.post('/products', { categoryId: ids.category, sku: 'PD32', name: 'Pendrive 32GB', price: 450, costPrice: 380, openingStock: 50 })).body.product.id;

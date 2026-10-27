@@ -8,6 +8,7 @@ const { toPaisa } = require('./money');
  *   net sales    = Σ total − Σ returned         completed sales, by sale date
  *   cost         = Σ cost at the time of sale × (quantity sold − returned)
  *   gross profit = net sales − cost
+ *   commission   = Σ staff commission earned on those sales, less what returns took back
  *
  * A return is counted against the sale it belongs to, whenever it happened,
  * so a bill's profit is the same in every report. Opening dues are not sales.
@@ -29,6 +30,12 @@ async function salesFigures(start, end) {
       WHERE i.item_type = 'product' AND s.status = 'completed' AND s.sale_type = 'sale' AND s.sale_date >= ? AND s.sale_date < ?`,
     [start, end],
   );
+  // A voided sale's commission is cancelled by its own sale_void entry; it is left out with the sale.
+  const [k] = await query(
+    `SELECT COALESCE(SUM(e.amount), 0) AS commission FROM staff_commission_entries e JOIN sales s ON s.id = e.sale_id
+      WHERE e.entry_type IN ('sale', 'sale_return') AND s.status = 'completed' AND s.sale_type = 'sale' AND s.sale_date >= ? AND s.sale_date < ?`,
+    [start, end],
+  );
   const total = toPaisa(s.total);
   const returned = toPaisa(s.returned);
   const cost = toPaisa(c.cost);
@@ -42,6 +49,7 @@ async function salesFigures(start, end) {
     due: toPaisa(s.due),
     cost,
     grossProfit: total - returned - cost,
+    commission: toPaisa(k.commission),
     // Product lines sold with no cost price recorded: their profit is overstated.
     uncostedLines: Number(c.uncosted),
   };

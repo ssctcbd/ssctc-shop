@@ -1,21 +1,22 @@
 'use client';
 
 import { useState } from 'react';
+import { useDialogs } from '@/components/Dialogs';
 import Modal from '@/components/Modal';
-import { Field, Notice, SubmitButton } from '@/components/Form';
+import { Checkbox, Field, Notice, SubmitButton } from '@/components/Form';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useStaff } from '@/lib/session';
 import { useFetch, useForm } from '@/lib/useFetch';
 
 const ROLES = { owner: 'Owner', staff: 'Staff' };
-const ROLE_HINT = { owner: 'Can do everything, including this screen.', staff: 'Sells, takes payments, records expenses, sees stock. Cannot void, verify or change prices.' };
+const ROLE_HINT = { owner: 'Can do everything, including this screen.', staff: 'Sells, takes payments, records expenses, opens and hands over the cash, sees stock and their own commission. Cannot void, verify or change prices.' };
 
 function UserForm({ user, isSelf, onDone, onClose }) {
   const editing = Boolean(user);
-  const form = useForm({ name: user?.name || '', username: '', phone: user?.phone || '', role: user?.role || 'staff', password: '' }, async (v) => {
-    if (editing) await api.put(`/users/${user.id}`, { name: v.name, phone: v.phone || null, ...(isSelf ? {} : { role: v.role }) });
-    else await api.post('/users', { name: v.name, username: v.username, ...(v.phone ? { phone: v.phone } : {}), role: v.role, password: v.password });
+  const form = useForm({ name: user?.name || '', username: '', phone: user?.phone || '', role: user?.role || 'staff', password: '', commissionEnabled: user ? user.commissionEnabled : true }, async (v) => {
+    if (editing) await api.put(`/users/${user.id}`, { name: v.name, phone: v.phone || null, commissionEnabled: v.commissionEnabled, ...(isSelf ? {} : { role: v.role }) });
+    else await api.post('/users', { name: v.name, username: v.username, ...(v.phone ? { phone: v.phone } : {}), role: v.role, password: v.password, commissionEnabled: v.commissionEnabled });
     onDone();
   });
   const { values: v, fields: f, set } = form;
@@ -34,6 +35,7 @@ function UserForm({ user, isSelf, onDone, onClose }) {
             </option>
           ))}
         </Field>
+        <Checkbox label="Earns commission" hint="On every sale they record, at the rates set on Services and Categories." checked={v.commissionEnabled} onChange={set('commissionEnabled')} />
         {!editing && <Field label="First password" type="text" required autoComplete="off" value={v.password} error={f.password} onChange={set('password')} hint="At least 10 characters. Tell it to them; they must choose their own at first login." />}
         <div className="form-actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>
@@ -88,6 +90,7 @@ function ResetPasswordForm({ user, onDone, onClose }) {
 
 export default function UsersPage() {
   const me = useStaff();
+  const { confirm } = useDialogs();
   const { data, error, loading, reload } = useFetch('/users');
   const [editing, setEditing] = useState(undefined);
   const [resetting, setResetting] = useState(null);
@@ -95,7 +98,7 @@ export default function UsersPage() {
   const users = data?.users || [];
 
   async function setStatus(user, status) {
-    if (status === 'blocked' && !window.confirm(`Block ${user.name}? They are logged out at once and cannot log in until unblocked.`)) return;
+    if (status === 'blocked' && !(await confirm({ title: 'Block user', message: `Block ${user.name}? They are logged out at once and cannot log in until unblocked.`, confirmLabel: 'Block' }))) return;
     setActionError('');
     try {
       await api.put(`/users/${user.id}`, { status });
@@ -139,6 +142,7 @@ export default function UsersPage() {
                 <td>
                   <span className="badge">{ROLES[u.role]}</span>
                   {u.status === 'blocked' && <span className="badge badge-danger">Blocked</span>}
+                  {u.commissionEnabled && <span className="badge badge-ok">Commission</span>}
                   {u.mustChangePassword && <span className="sub">Must change password</span>}
                 </td>
                 <td className="nowrap">{u.lastLoginAt ? formatDateTime(u.lastLoginAt) : 'Never'}</td>

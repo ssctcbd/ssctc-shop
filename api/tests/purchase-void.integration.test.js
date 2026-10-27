@@ -1,4 +1,4 @@
-const { resetDatabase, startApp } = require('./helpers/setup');
+const { resetDatabase, startApp, openCashDay } = require('./helpers/setup');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -31,6 +31,7 @@ test.before(async () => {
   staff = app.client();
   await owner.post('/auth/login', OWNER);
   await staff.post('/auth/login', STAFF);
+  await openCashDay(owner);
 
   ids.category = (await owner.post('/categories', { name: 'Stationery' })).body.category.id;
   ids.paper = (await owner.post('/products', { categoryId: ids.category, sku: 'PAPER', name: 'A4 Paper', price: 520, costPrice: 470, openingStock: 5 })).body.product.id;

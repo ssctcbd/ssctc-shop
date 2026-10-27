@@ -2,7 +2,7 @@ const express = require('express');
 const { pool, query } = require('../../db/pool');
 const { staffWith } = require('../../middleware/session');
 const { salesFigures, expensesTotal } = require('../../lib/figures');
-const { drawerMovements, expectedCash } = require('../../lib/cash');
+const { cashDay, cashDate, drawerMovements, expectedCash } = require('../../lib/cash');
 const { toPaisa, fromPaisa, fromSignedPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, today } = require('../../lib/dates');
 const { getSetting } = require('../../lib/settings');
@@ -24,7 +24,7 @@ router.get('/dashboard', staffWith('dashboard.view'), async (req, res) => {
     out.sales = { bills: f.bills, netSales: fromPaisa(f.netSales), newDues: fromPaisa(f.due) };
     if (can('reports.financial')) {
       const expenses = await expensesTotal(start, end);
-      out.profit = { grossProfit: fromSignedPaisa(f.grossProfit), expenses: fromPaisa(expenses), netProfit: fromSignedPaisa(f.grossProfit - expenses), uncostedLines: f.uncostedLines };
+      out.profit = { grossProfit: fromSignedPaisa(f.grossProfit), commission: fromPaisa(f.commission), expenses: fromPaisa(expenses), netProfit: fromSignedPaisa(f.grossProfit - f.commission - expenses), uncostedLines: f.uncostedLines };
     }
     const recent = await query(
       `SELECT id, invoice_no, customer_name, sale_date, total_amount, due_amount, payment_status, status
@@ -64,16 +64,23 @@ router.get('/dashboard', staffWith('dashboard.view'), async (req, res) => {
   }
 
   if (can('cash.view')) {
-    const [last] = await pool.query("SELECT closed_at, actual_closing_cash - cash_withdrawn AS carried, DATE_FORMAT(closing_date, '%Y-%m-%d') AS closing_day FROM daily_cash_closings ORDER BY id DESC LIMIT 1");
-    const [clock] = await pool.query('SELECT UTC_TIMESTAMP() AS now');
-    const previous = last[0] || null;
-    const figures = await drawerMovements(pool, previous ? previous.closed_at : null, clock[0].now);
-    out.cash = {
-      // Before the first closing the opening cash is unknown: this is the movement alone.
-      hasOpening: Boolean(previous),
-      expected: fromSignedPaisa(expectedCash(previous ? toPaisa(previous.carried) : 0, figures)),
-      closedToday: Boolean(previous && previous.closing_day === day),
-    };
+    const d = await cashDay(pool);
+    out.cash = { status: d.isOpen ? 'open' : 'closed', carried: d.carried === null ? null : fromPaisa(d.carried), lastClosingDate: d.lastClosing ? d.lastClosing.closing_day : null };
+    if (d.isOpen) {
+      const [clock] = await pool.query('SELECT UTC_TIMESTAMP() AS now');
+      const figures = await drawerMovements(pool, d.opening.opened_at, clock[0].now);
+      Object.assign(out.cash, { openingDate: d.opening.opening_day, stale: d.opening.opening_day < cashDate(), expected: fromSignedPaisa(expectedCash(toPaisa(d.opening.counted_cash), figures)) });
+    }
+  }
+
+  if (can('commission.view_own')) {
+    const [mine] = await query(
+      `SELECT COALESCE(SUM(amount), 0) AS balance,
+              COALESCE(SUM(IF(entry_type IN ('sale', 'sale_void', 'sale_return') AND created_at >= ? AND created_at < ?, amount, 0)), 0) AS today
+         FROM staff_commission_entries WHERE user_id = ?`,
+      [start, end, req.user.id],
+    );
+    out.myCommission = { earnedToday: mine.today, balance: mine.balance };
   }
 
   if (can('system.backup')) {

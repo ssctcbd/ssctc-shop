@@ -7,7 +7,7 @@ import AuthShell from '@/components/AuthShell';
 import { Field, Notice, SubmitButton } from '@/components/Form';
 import { api } from '@/lib/api';
 
-export default function StaffLoginPage() {
+export default function ShopLoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -30,7 +30,7 @@ export default function StaffLoginPage() {
 
   return (
     <AuthShell
-      title="Staff login"
+      title="Shop login"
       subtitle="Shop management system"
       footer={
         <>
@@ -63,6 +63,9 @@ export default function StaffLoginPage() {
         <SubmitButton busy={busy} busyText="Logging in…">
           Log in
         </SubmitButton>
+        <p className="field-hint auth-forgot">
+          <Link href="/login/recover/">Forgot password?</Link> Staff: ask the Owner for a new one.
+        </p>
       </form>
     </AuthShell>
   );

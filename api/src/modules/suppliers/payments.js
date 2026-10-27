@@ -4,7 +4,7 @@ const { validateBody, validateQuery, idParam } = require('../../middleware/valid
 const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { nextDocumentNumber } = require('../../lib/documents');
-const { lockCashDrawer } = require('../../lib/cash');
+const { lockOpenDrawer } = require('../../lib/cash');
 const { recalculatePurchase, recalculatePayable } = require('../../lib/payables');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, documentDate, today } = require('../../lib/dates');
@@ -110,7 +110,7 @@ router.post('/supplier-payments', staffWith('purchases.manage'), validateBody(pa
 
   try {
     await transaction(async (conn) => {
-      await lockCashDrawer(conn);
+      await lockOpenDrawer(conn);
       await lockSupplier(conn, b.supplierId);
 
       const [open] = await conn.execute("SELECT id, purchase_no, purchase_date, due_amount FROM purchases WHERE supplier_id = ? AND status = 'active' AND due_amount > 0 ORDER BY id FOR UPDATE", [b.supplierId]);
@@ -173,7 +173,7 @@ router.post('/supplier-payments', staffWith('purchases.manage'), validateBody(pa
 // bills it covered are owed again.
 router.post('/supplier-payments/:id/void', staffWith('purchases.manage'), idParam, validateBody(voidSchema), async (req, res) => {
   await transaction(async (conn) => {
-    await lockCashDrawer(conn);
+    await lockOpenDrawer(conn);
     const [found] = await conn.execute('SELECT supplier_id FROM supplier_payments WHERE id = ?', [req.id]);
     if (!found[0]) throw notFound('Payment not found.');
     await lockSupplier(conn, found[0].supplier_id, null);

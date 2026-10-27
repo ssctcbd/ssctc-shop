@@ -1,6 +1,7 @@
 'use client';
 
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Checkbox, Field, Notice } from '@/components/Form';
 import { api } from '@/lib/api';
@@ -12,35 +13,156 @@ const METHODS = { cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', bank_transfer: '
 // Cash is in hand and advance is money the shop already holds: neither needs a reference or a check.
 const isSettled = (method) => method === 'cash' || method === 'customer_advance';
 
+const KINDS = [
+  ['all', 'All'],
+  ['product', 'Products'],
+  ['service', 'Services'],
+];
+// The kind last chosen on this computer, kept for the next sale and the next visit.
+const KIND_KEY = 'ssctc.pos.itemKind';
+const MAX_SHOWN = 50;
+
 /**
  * One box for products and services: type a name, or type/scan a code. When
  * the text matches an entry it is added to the sale and the box clears, ready
- * for the next scan.
+ * for the next scan. All / Products / Services narrows what the list offers;
+ * a scanned code is found whatever is chosen, so a scan is never lost.
+ * Arrow keys move through the list, Enter adds, Escape closes it.
  */
 function ItemEntry({ entries, onAdd }) {
   const id = useId();
+  const inputRef = useRef(null);
+  const listRef = useRef(null);
+  const [kind, setKind] = useState('all');
   const [text, setText] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [notice, setNotice] = useState('');
 
-  function onInput(next) {
-    const wanted = next.trim().toLowerCase();
-    const match = wanted && entries.find((e) => e.label.toLowerCase() === wanted || (e.code && e.code.toLowerCase() === wanted));
-    if (match) {
-      onAdd(match);
-      setText('');
-    } else setText(next);
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(KIND_KEY);
+      if (KINDS.some(([k]) => k === saved)) setKind(saved);
+    } catch {
+      // Storage blocked (private window): start from All.
+    }
+  }, []);
+
+  const counts = useMemo(() => ({ all: entries.length, product: entries.filter((e) => e.type === 'product').length, service: entries.filter((e) => e.type === 'service').length }), [entries]);
+  const offered = useMemo(() => (kind === 'all' ? entries : entries.filter((e) => e.type === kind)), [entries, kind]);
+  const wanted = text.trim().toLowerCase();
+  const matches = useMemo(() => (wanted ? offered.filter((e) => e.label.toLowerCase().includes(wanted) || (e.code && e.code.toLowerCase().includes(wanted))) : offered).slice(0, MAX_SHOWN), [offered, wanted]);
+
+  useEffect(() => {
+    if (open) listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [active, open]);
+
+  function choose(next) {
+    setKind(next);
+    setActive(0);
+    setNotice('');
+    try {
+      window.localStorage.setItem(KIND_KEY, next);
+    } catch {
+      // Not remembered; it still applies to this sale.
+    }
+    inputRef.current?.focus();
   }
 
+  function add(entry) {
+    onAdd(entry);
+    setText('');
+    setOpen(false);
+    setActive(0);
+    setNotice(kind !== 'all' && entry.type !== kind ? `"${entry.name}" is a ${entry.type}: added to the bill although ${kind === 'product' ? 'Products' : 'Services'} is selected.` : '');
+  }
+
+  function onInput(next) {
+    setText(next);
+    setOpen(true);
+    setActive(0);
+    setNotice('');
+    const typed = next.trim().toLowerCase();
+    if (!typed) return;
+    // A code (typed or scanned) is looked up among everything; a full name among what is offered.
+    const exact = entries.find((e) => e.code && e.code.toLowerCase() === typed) || offered.find((e) => e.label.toLowerCase() === typed);
+    if (exact) add(exact);
+  }
+
+  function onKeyDown(event) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!open) return setOpen(true);
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      setActive((i) => (matches.length ? (i + step + matches.length) % matches.length : 0));
+    } else if (event.key === 'Enter') {
+      // Never submits the sale: a scanner ends every code with Enter.
+      event.preventDefault();
+      if (open && matches[active]) add(matches[active]);
+    } else if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      setOpen(false);
+    }
+  }
+
+  const listId = `${id}-list`;
+  const showList = open && matches.length > 0;
   return (
     <div className="field">
-      <label htmlFor={id}>Add product or service</label>
-      <input id={id} list={`${id}-list`} value={text} autoFocus autoComplete="off" placeholder="Type a name, or scan / type a code" onChange={(e) => onInput(e.target.value)} />
-      <datalist id={`${id}-list`}>
-        {entries.map((e) => (
-          <option key={e.key} value={e.label}>
-            {e.hint}
-          </option>
+      <div className="kind-tabs" role="group" aria-label="Show in the list">
+        {KINDS.map(([value, label]) => (
+          <button key={value} type="button" className={`kind-tab${kind === value ? ' active' : ''}`} aria-pressed={kind === value} onClick={() => choose(value)}>
+            {label} <span className="kind-count">({counts[value]})</span>
+          </button>
         ))}
-      </datalist>
+      </div>
+      <label htmlFor={id}>Add {kind === 'product' ? 'a product' : kind === 'service' ? 'a service' : 'product or service'}</label>
+      <div className="combo">
+        <input
+          ref={inputRef}
+          id={id}
+          role="combobox"
+          aria-expanded={showList}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={showList ? `${listId}-${active}` : undefined}
+          value={text}
+          autoFocus
+          autoComplete="off"
+          placeholder="Type a name, or scan / type a code"
+          onChange={(e) => onInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          onFocus={() => text && setOpen(true)}
+          onClick={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+        />
+        {showList && (
+          <ul ref={listRef} id={listId} role="listbox" className="combo-list">
+            {matches.map((e, index) => (
+              <li
+                key={e.key}
+                id={`${listId}-${index}`}
+                role="option"
+                aria-selected={index === active}
+                className="combo-option"
+                // Keep the focus in the box, so the list is not closed before the click lands.
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => add(e)}
+              >
+                <span>{e.label}</span>
+                <span className="combo-hint">{e.hint}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {open && wanted && matches.length === 0 && <p className="field-hint">Nothing matches &quot;{text.trim()}&quot;{kind !== 'all' ? ` in ${kind === 'product' ? 'Products' : 'Services'}. Try All.` : '.'}</p>}
+      {notice && (
+        <p className="field-hint" role="status">
+          {notice}
+        </p>
+      )}
     </div>
   );
 }
@@ -51,6 +173,9 @@ export default function PosPage() {
   const products = useFetch('/products/options').data?.products;
   const services = useFetch('/services').data?.services;
   const customers = useFetch('/customers/options').data?.customers || [];
+  // Nothing can be sold until the cash day is open: say so before the bill is filled in.
+  const cashDay = useFetch(can('cash.view') ? '/cash-register/current' : null).data;
+  const cashProblem = cashDay && (cashDay.status !== 'open' ? 'The cash is not open yet: count the drawer and open it before the first sale.' : cashDay.stale ? 'Yesterday’s cash was never handed over. Close it before selling today.' : '');
   const customerListId = useId();
 
   // One key per sale, reused if the same save is repeated, so it is stored once.
@@ -161,6 +286,11 @@ export default function PosPage() {
 
       <form onSubmit={onSubmit} noValidate className="pos">
         <div className="pos-main">
+          {cashProblem && (
+            <Notice kind="warning">
+              {cashProblem} <Link href="/cash/">Go to Cash</Link>
+            </Notice>
+          )}
           <Notice>{error}</Notice>
           <div className="card">
             <ItemEntry entries={entries} onAdd={addEntry} />

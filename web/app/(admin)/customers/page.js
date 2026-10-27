@@ -3,19 +3,41 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import CollectDue from '@/components/CollectDue';
+import { useDialogs } from '@/components/Dialogs';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
 import { Checkbox, Field, Notice, SubmitButton } from '@/components/Form';
 import { api } from '@/lib/api';
-import { formatDate, formatMoney } from '@/lib/format';
+import { formatDate, formatMoney, whatsappLink, whatsappNumber } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { toQuery, useFetch, useForm } from '@/lib/useFetch';
 
+/**
+ * The portal login just issued, with a button that opens WhatsApp on this
+ * computer or phone with the message typed in: the shop only presses Send.
+ */
 function PinBox({ pin, phone }) {
+  const shopName = useFetch('/settings/shop').data?.settings?.['shop.name'] || 'SS Computer Training Centre';
+  const message = [
+    shopName,
+    'Your customer portal login:',
+    `${window.location.origin}/portal/login/`,
+    `Mobile: ${phone}`,
+    `PIN: ${pin}`,
+    'See your bills, payments and warranties there. You can change the PIN after logging in.',
+  ].join('\n');
+
   return (
-    <Notice kind="success">
-      Portal login for this customer — mobile <strong>{phone}</strong>, PIN <strong className="pin-text">{pin}</strong>. Tell the customer now; they can change it after logging in.
-    </Notice>
+    <>
+      <Notice kind="success">
+        Portal login for this customer — mobile <strong>{phone}</strong>, PIN <strong className="pin-text">{pin}</strong>. Tell the customer now, or send it on WhatsApp; they can change it after logging in.
+      </Notice>
+      {whatsappNumber(phone) && (
+        <a className="btn btn-primary" href={whatsappLink(phone, message)} target="_blank" rel="noopener noreferrer">
+          Send on WhatsApp
+        </a>
+      )}
+    </>
   );
 }
 
@@ -185,6 +207,7 @@ function RefundAdvanceForm({ customer, onDone, onCancel }) {
 
 function CustomerDetail({ id, onClose, onChanged, onEdit, onCollect }) {
   const can = useCan();
+  const { confirm } = useDialogs();
   const { data, error, reload } = useFetch(`/customers/${id}`);
   const advance = useFetch(`/customers/${id}/advance`);
   const [newPin, setNewPin] = useState('');
@@ -198,7 +221,7 @@ function CustomerDetail({ id, onClose, onChanged, onEdit, onCollect }) {
   const hasOpening = sales.some((s) => s.saleType === 'opening_due' && s.status === 'completed');
 
   async function resetPin() {
-    if (!window.confirm(`Issue a new portal PIN for ${c.name}? The old PIN stops working.`)) return;
+    if (!(await confirm({ title: 'Reset portal PIN', message: `Issue a new portal PIN for ${c.name}? The old PIN stops working.`, confirmLabel: 'Issue new PIN' }))) return;
     setActionError('');
     try {
       const res = await api.post(`/customers/${id}/reset-pin`);
@@ -260,7 +283,7 @@ function CustomerDetail({ id, onClose, onChanged, onEdit, onCollect }) {
                 Edit
               </button>
             )}
-            {can('customers.manage') && !hasOpening && !opening && (
+            {can('customers.opening_due') && !hasOpening && !opening && (
               <button className="btn btn-ghost btn-sm" onClick={() => setOpening(true)}>
                 Opening due
               </button>

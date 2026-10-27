@@ -28,4 +28,16 @@ function newPin() {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
 }
 
-module.exports = { newToken, hashToken, hashSecret, verifySecret, newPin };
+// No 0/O or 1/I, so a code copied by hand is read back correctly.
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** A one-time recovery code: 10 random characters (50 bits), shown as XXXXX-XXXXX. */
+function newRecoveryCode() {
+  const chars = Array.from({ length: 10 }, () => CODE_ALPHABET[crypto.randomInt(0, CODE_ALPHABET.length)]).join('');
+  return `${chars.slice(0, 5)}-${chars.slice(5)}`;
+}
+
+/** The stored form of a recovery code: its hash, ignoring case, spaces and dashes. */
+const hashRecoveryCode = (code) => hashToken(code.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+
+module.exports = { newToken, hashToken, hashSecret, verifySecret, newPin, newRecoveryCode, hashRecoveryCode };

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useDialogs } from '@/components/Dialogs';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
 import { Checkbox, Field, Notice } from '@/components/Form';
@@ -135,6 +136,7 @@ function ReturnForm({ sale, onDone, onCancel }) {
 
 function SaleDetail({ id, onClose, onChanged }) {
   const can = useCan();
+  const { askReason } = useDialogs();
   const { data, error, reload } = useFetch(`/sales/${id}`);
   const [voiding, setVoiding] = useState(false);
   const [returning, setReturning] = useState(false);
@@ -151,10 +153,9 @@ function SaleDetail({ id, onClose, onChanged }) {
       setActionError(err.message);
     }
   }
-  function voidPayment(p) {
-    const reason = window.prompt(`Why is receipt ${p.receiptNo} (${formatMoney(p.amount)}) being voided?`);
-    if (reason && reason.trim().length >= 3) act(`/payments/${p.id}/void`, { reason: reason.trim() });
-    else if (reason !== null) setActionError('Write a reason of at least 3 characters to void a payment.');
+  async function voidPayment(p) {
+    const reason = await askReason({ title: 'Void payment', message: `Why is receipt ${p.receiptNo} (${formatMoney(p.amount)}) being voided?`, confirmLabel: 'Void payment' });
+    if (reason) act(`/payments/${p.id}/void`, { reason });
   }
 
   return (

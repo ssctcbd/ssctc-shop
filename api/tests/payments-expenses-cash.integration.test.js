@@ -1,6 +1,7 @@
-const { resetDatabase, startApp } = require('./helpers/setup');
+const { resetDatabase, startApp, openCashDay } = require('./helpers/setup');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { cashDate } = require('../src/lib/cash');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,6 +32,7 @@ test.before(async () => {
   staff = app.client();
   await owner.post('/auth/login', OWNER);
   await staff.post('/auth/login', STAFF);
+  await openCashDay(owner, '1000');
 
   ids.category = (await owner.post('/categories', { name: 'Gadgets' })).body.category.id;
   ids.pendrive = (await owner.post('/products', { categoryId: ids.category, sku: 'PD32', name: 'Pendrive 32GB', price: 450, costPrice: 380, openingStock: 200 })).body.product.id;
@@ -62,6 +64,8 @@ const bill = (extra = {}) => owner.post('/purchases', { supplierId: ids.supplier
 const pay = (client, body) => client.post('/supplier-payments', { idempotencyKey: key(), supplierId: ids.supplier, ...body });
 const spend = (client, body) => client.post('/expenses', { idempotencyKey: key(), categoryId: ids.tea, title: 'Tea for the shop', amount: 50, ...body });
 const drawer = async () => (await owner.get('/cash-register/current')).body;
+/** A shop day `n` days before the current one. */
+const shopDay = (n) => new Date(Date.parse(`${cashDate()}T00:00:00Z`) - n * 86400 * 1000).toISOString().slice(0, 10);
 
 // --- migration 004 ----------------------------------------------------------
 
@@ -389,7 +393,7 @@ async function cashFromTables() {
   };
 }
 
-it('before the first closing the drawer shows every cash movement so far, matching the tables', async () => {
+it('while the day is open the drawer shows every cash movement since the morning count, matching the tables', async () => {
   // A walk-in cash sale, so "cash sales" is not empty.
   const walkIn = await sell(staff, { items: pendrives(2), payments: [{ method: 'cash', amount: 900 }] });
   assert.equal(walkIn.status, 201);
@@ -397,64 +401,111 @@ it('before the first closing the drawer shows every cash movement so far, matchi
 
   const d = await drawer();
   const t = await cashFromTables();
-  assert.deepEqual([d.periodStart, d.openingCash, d.lastClosing, d.closedToday], [null, null, null, false]);
+  // The day was opened with 1000 in the drawer, before anything was recorded.
+  assert.deepEqual([d.status, d.openingCash, d.lastClosing, d.carriedCash, d.stale], ['open', '1000.00', null, null, false]);
+  assert.equal(d.periodStart, d.opening.openedAt);
   for (const figure of Object.keys(t)) assert.equal(d[figure], t[figure], figure);
   // 900 walk-in · 1000+300+50+50+200 collections (cash only) + 10 · 300 deposit · 50 tea · 1000+500 cash to the supplier is not cash: bank
-  assert.deepEqual([d.cashSales, d.cashDuesCollected, d.cashAdvanceDeposits, d.cashExpenses, d.cashRefunds, d.cashVoidsIn], ['900.00', '1610.00', '300.00', '50.00', '100.00', '0.00']);
+  assert.deepEqual([d.cashSales, d.cashDuesCollected, d.cashAdvanceDeposits, d.cashExpenses, d.cashRefunds, d.cashVoidsIn, d.cashCommissionPaid], ['900.00', '1610.00', '300.00', '50.00', '100.00', '0.00', '0.00']);
   // bKash money is shown beside the drawer, never inside it.
   assert.equal(d.otherMethods.bkash, '200.00');
   assert.equal((await app.client().get('/cash-register/current')).status, 401);
 });
 
-it('closing needs the Owner, the opening cash the first time, the figure on screen, and a note for any difference', async () => {
+it('the hand-over needs the figure on screen and a note for any difference, and staff can do it', async () => {
   const d = await drawer();
-  const movement = Number(d.expectedCash);
-  const expected = (1000 + movement).toFixed(2);
-  const body = { actualCash: expected, expectedCash: expected, openingCash: '1000' };
+  const expected = d.expectedCash;
+  const body = { actualCash: expected, expectedCash: expected };
 
-  assert.equal((await staff.post('/cash-register/close', body)).status, 403);
-  const noOpening = await owner.post('/cash-register/close', { actualCash: expected, expectedCash: expected });
-  assert.equal(noOpening.status, 400);
-  assert.ok(noOpening.body.error.details.fields.openingCash);
   // The screen showed a different figure: someone recorded something meanwhile.
-  const stale = await owner.post('/cash-register/close', { ...body, expectedCash: '1.00' });
+  const stale = await staff.post('/cash-register/close', { ...body, expectedCash: '1.00' });
   assert.equal(stale.status, 409);
   assert.equal(stale.body.error.details.expectedCash, expected);
   const short = (Number(expected) - 20).toFixed(2);
-  const noNote = await owner.post('/cash-register/close', { ...body, actualCash: short });
+  const noNote = await staff.post('/cash-register/close', { ...body, actualCash: short });
   assert.equal(noNote.status, 400);
   assert.match(noNote.body.error.details.fields.note, /short by 20\.00/);
-  assert.equal((await owner.post('/cash-register/close', { ...body, actualCash: short, note: 'x', withdrawn: '999999' })).status, 400);
-  assert.equal((await owner.post('/cash-register/close', { ...body, date: daysAgo(-1) })).status, 400);
+  // The opening cash and what is taken out are no longer typed at the closing.
+  assert.equal((await staff.post('/cash-register/close', { ...body, openingCash: '1000' })).status, 400);
+  assert.equal((await staff.post('/cash-register/close', { ...body, withdrawn: '100' })).status, 400);
   assert.equal(await count('daily_cash_closings'), 0);
 
-  const res = await owner.post('/cash-register/close', { ...body, actualCash: short, note: 'Twenty short, to be checked', withdrawn: '1000' });
+  const res = await staff.post('/cash-register/close', { ...body, actualCash: short, note: 'Twenty short, to be checked' });
   assert.equal(res.status, 201);
   const c = res.body.closing;
   ids.closing1 = c.id;
-  assert.deepEqual([c.openingCash, c.expectedCash, c.actualCash, c.difference, c.cashWithdrawn, c.closedByName], ['1000.00', expected, short, '-20.00', '1000.00', 'Owner']);
-  assert.equal(c.carriedForward, (Number(short) - 1000).toFixed(2));
-  ids.carried = c.carriedForward;
+  assert.deepEqual(
+    [c.closingDate, c.openingCash, c.expectedCash, c.actualCash, c.difference, c.cashWithdrawn, c.carriedForward, c.closedByName],
+    [cashDate(), '1000.00', expected, short, '-20.00', '0.00', short, 'Rahim'],
+  );
+  ids.short = short;
   const log = await one("SELECT new_values FROM audit_logs WHERE action = 'cash.close'");
   assert.equal(log.new_values.difference, '-20.00');
 });
 
-it('after a closing the drawer starts again from what was left in it, and today cannot be closed twice', async () => {
-  const d = await drawer();
-  assert.equal(d.openingCash, ids.carried);
-  assert.equal(d.expectedCash, ids.carried);
-  assert.equal(d.closedToday, true);
-  assert.deepEqual([d.cashSales, d.cashDuesCollected, d.cashAdvanceDeposits, d.cashExpenses, d.cashSupplierPaid, d.cashRefunds, d.cashVoidsIn], ['0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00']);
+it('after the hand-over nothing that moves money is recorded, and only the Owner takes cash from the drawer', async () => {
+  for (const res of [
+    await sell(staff, { items: pendrives(1), payments: [{ method: 'cash', amount: 450 }] }),
+    await spend(staff, { amount: 10 }),
+    await collect(staff, { customerId: ids.salma, amount: 10 }),
+    await staff.post(`/customers/${ids.salma}/advance-deposit`, { idempotencyKey: key(), amount: 10 }),
+    await pay(owner, { amount: 10 }),
+  ]) {
+    assert.equal(res.status, 409);
+    assert.equal(res.body.error.code, 'cash_day_closed');
+  }
 
-  const again = await owner.post('/cash-register/close', { actualCash: ids.carried, expectedCash: ids.carried });
+  const d = await drawer();
+  assert.deepEqual([d.status, d.carriedCash, d.lastClosing.id, d.expectedCash], ['closed', ids.short, ids.closing1, undefined]);
+  const again = await staff.post('/cash-register/close', { actualCash: '0', expectedCash: '0' });
   assert.equal(again.status, 409);
-  assert.match(again.body.error.message, /already been closed/);
+  assert.match(again.body.error.message, /already been handed over/);
+
+  assert.equal((await staff.post('/cash-register/receive', { amount: '100' })).status, 403);
+  assert.equal((await owner.post('/cash-register/receive', { amount: (Number(ids.short) + 1).toFixed(2) })).status, 400);
+  const first = await owner.post('/cash-register/receive', { amount: '1000', note: 'Taken home' });
+  assert.equal(first.status, 201);
+  assert.equal(first.body.carriedCash, (Number(ids.short) - 1000).toFixed(2));
+  // Received in two goes; the closing keeps the running total.
+  assert.equal((await owner.post('/cash-register/receive', { amount: '100' })).status, 201);
+  ids.carried = (Number(ids.short) - 1100).toFixed(2);
+  const after = await drawer();
+  assert.deepEqual([after.carriedCash, after.lastClosing.cashWithdrawn, after.lastClosing.carriedForward, after.lastClosing.receipts.length], [ids.carried, '1100.00', ids.carried, 2]);
+
+  // The same shop day cannot be opened a second time.
+  const reopen = await staff.post('/cash-register/open', { countedCash: ids.carried, carriedCash: ids.carried });
+  assert.equal(reopen.status, 409);
+});
+
+it('next morning the count is checked against what was left, a difference needs a note, and then work goes on', async () => {
+  // Pretend the hand-over was yesterday.
+  await db.query('UPDATE daily_cash_openings SET opening_date = ?', [shopDay(1)]);
+  await db.query('UPDATE daily_cash_closings SET closing_date = ?', [shopDay(1)]);
+  assert.equal((await owner.post('/cash-register/receive', { amount: '1' })).status, 201); // still before the opening
+  ids.carried = (Number(ids.carried) - 1).toFixed(2);
+
+  // The Owner took cash while the screen was open: the figure on it is out of date.
+  const stale = await staff.post('/cash-register/open', { countedCash: ids.carried, carriedCash: (Number(ids.carried) + 1).toFixed(2) });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error.details.carriedCash, ids.carried);
+  const counted = (Number(ids.carried) - 10).toFixed(2);
+  const noNote = await staff.post('/cash-register/open', { countedCash: counted, carriedCash: ids.carried });
+  assert.equal(noNote.status, 400);
+  assert.match(noNote.body.error.details.fields.note, /short by 10\.00/);
+
+  const res = await staff.post('/cash-register/open', { countedCash: counted, carriedCash: ids.carried, note: 'Ten taka missing' });
+  assert.equal(res.status, 201);
+  const o = res.body.opening;
+  assert.deepEqual([o.openingDate, o.carriedCash, o.countedCash, o.difference, o.openedByName], [cashDate(), ids.carried, counted, '-10.00', 'Rahim']);
+  ids.opening2 = counted;
+  assert.equal((await owner.post('/cash-register/receive', { amount: '1' })).status, 409); // only between a closing and the next opening
+  assert.equal((await staff.post('/cash-register/open', { countedCash: counted, carriedCash: ids.carried })).status, 409);
+
+  const d = await drawer();
+  assert.deepEqual([d.status, d.openingCash, d.expectedCash, d.cashSales], ['open', counted, counted, '0.00']);
 });
 
 it('the next period counts new cash, hands back what is voided from before, and ignores what is made and voided inside it', async () => {
-  // Pretend the first closing was yesterday, so today can be closed.
-  await db.query('UPDATE daily_cash_closings SET closing_date = ? WHERE id = ?', [daysAgo(1), ids.closing1]);
-
   // In: a cash sale 450, a cash deposit 100, a collection 40.
   const sale = await sell(staff, { items: pendrives(1), payments: [{ method: 'cash', amount: 450 }] });
   assert.equal(sale.status, 201);
@@ -482,33 +533,60 @@ it('the next period counts new cash, hands back what is voided from before, and 
     { sales: '450.00', dues: '40.00', deposits: '100.00', voidsIn: '50.00', expenses: '30.00', supplier: '250.00', refunds: '1410.00' },
   );
   // opening + 640 in − 1690 out
-  assert.equal(Number(d.expectedCash).toFixed(2), (Number(ids.carried) + 640 - 1690).toFixed(2));
+  assert.equal(Number(d.expectedCash).toFixed(2), (Number(ids.opening2) + 640 - 1690).toFixed(2));
 
   const res = await owner.post('/cash-register/close', { actualCash: d.expectedCash, expectedCash: d.expectedCash });
   assert.equal(res.status, 201, JSON.stringify([res.body, d.expectedCash]));
   const c = res.body.closing;
-  assert.deepEqual([c.openingCash, c.difference, c.cashRefunds, c.cashVoidsIn, c.note], [ids.carried, '0.00', '1410.00', '50.00', null]);
+  assert.deepEqual([c.closingDate, c.openingCash, c.difference, c.cashRefunds, c.cashVoidsIn, c.note], [cashDate(), ids.opening2, '0.00', '1410.00', '50.00', null]);
   assert.equal(c.carriedForward, d.expectedCash);
 
   const history = (await staff.get('/cash-register/history')).body;
   assert.deepEqual(history.items.map((h) => h.id), [c.id, ids.closing1]);
-  assert.equal(history.items[0].periodStart, history.items[1].closedAt);
+  assert.equal(history.items[0].periodStart, history.items[0].opening.openedAt);
+  assert.deepEqual([history.items[0].opening.difference, history.items[0].receipts.length], ['-10.00', 0]);
+  assert.deepEqual([history.items[1].cashWithdrawn, history.items[1].receipts.map((r) => r.amount)], ['1101.00', ['1000.00', '100.00', '1.00']]);
+});
+
+it('a day left open overnight must be closed before the next day starts', async () => {
+  // Both earlier days moved back, so today is free to be opened.
+  await db.query('UPDATE daily_cash_openings SET opening_date = DATE_SUB(opening_date, INTERVAL 2 DAY) ORDER BY id');
+  await db.query('UPDATE daily_cash_closings SET closing_date = DATE_SUB(closing_date, INTERVAL 2 DAY) ORDER BY id');
+  await openCashDay(staff);
+  // ...and this one was opened yesterday and never handed over.
+  await db.query('UPDATE daily_cash_openings SET opening_date = ? ORDER BY id DESC LIMIT 1', [shopDay(1)]);
+  const d = await drawer();
+  assert.deepEqual([d.status, d.stale], ['open', true]);
+  const refused = await sell(staff, { items: pendrives(1), payments: [{ method: 'cash', amount: 450 }] });
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.error.code, 'cash_day_stale');
+  // Closing it is still allowed, and is dated the day it was opened.
+  const closed = await staff.post('/cash-register/close', { actualCash: d.expectedCash, expectedCash: d.expectedCash });
+  assert.equal(closed.status, 201);
+  assert.equal(closed.body.closing.closingDate, shopDay(1));
+  await openCashDay(staff);
 });
 
 it('sales recorded while the cash is being closed land in exactly one period, none lost and none counted twice', async () => {
-  await db.query('UPDATE daily_cash_closings SET closing_date = DATE_SUB(closing_date, INTERVAL 5 DAY)');
-  const before = await drawer();
   const sale = () => sell(staff, { items: pendrives(1), payments: [{ method: 'cash', amount: 450 }] });
   const early = await Promise.all([sale(), sale()]);
   const d = await drawer();
-  const [closing, ...late] = await Promise.all([owner.post('/cash-register/close', { actualCash: d.expectedCash, expectedCash: d.expectedCash }), sale(), sale(), sale()]);
-  assert.ok([...early, ...late].every((r) => r.status === 201));
-  // Either the closing went first, or a sale slipped in and it was refused as stale. Both are safe.
-  const after = await drawer();
-  const closedSales = closing.status === 201 ? Number(closing.body.closing.cashSales) : 0;
+  const [closing, ...late] = await Promise.all([staff.post('/cash-register/close', { actualCash: d.expectedCash, expectedCash: d.expectedCash }), sale(), sale(), sale()]);
+  assert.ok(early.every((r) => r.status === 201));
+  // Either the closing went first and the later sales were refused (the day is
+  // handed over), or a sale slipped in and the closing was refused as stale.
   assert.ok([201, 409].includes(closing.status));
-  assert.equal(closedSales + Number(after.cashSales), Number(before.cashSales) + 5 * 450);
-  if (closing.status === 201) assert.equal(after.openingCash, closing.body.closing.carriedForward);
+  const saved = [...early, ...late].filter((r) => r.status === 201).length;
+  for (const r of late.filter((x) => x.status !== 201)) assert.deepEqual([r.status, r.body.error.code], [409, 'cash_day_closed']);
+  const after = await drawer();
+  if (closing.status === 201) {
+    assert.equal(Number(closing.body.closing.cashSales), saved * 450);
+    assert.equal(after.status, 'closed');
+    assert.equal(after.carriedCash, closing.body.closing.carriedForward);
+  } else {
+    assert.equal(saved, 5);
+    assert.equal(Number(after.cashSales), 5 * 450);
+  }
 });
 
 it('after all of the above: sales, customers and the advance ledger still reconcile', async () => {

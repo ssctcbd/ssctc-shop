@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import CommissionRate, { describeRate, rateBody } from '@/components/CommissionRate';
 import Modal from '@/components/Modal';
 import { Checkbox, Field, Notice, SubmitButton } from '@/components/Form';
 import { api } from '@/lib/api';
@@ -10,9 +11,16 @@ import { useFetch, useForm } from '@/lib/useFetch';
 function CategoryForm({ category, parents, onDone, onClose }) {
   const editing = Boolean(category);
   const form = useForm(
-    { name: category?.name || '', parentId: category?.parentId || '', sortOrder: category?.sortOrder ?? 0, isActive: category?.isActive ?? true },
+    {
+      name: category?.name || '',
+      parentId: category?.parentId || '',
+      sortOrder: category?.sortOrder ?? 0,
+      isActive: category?.isActive ?? true,
+      commissionType: category?.commissionType || '',
+      commissionValue: category?.commissionType ? String(Number(category.commissionValue)) : '',
+    },
     async (v) => {
-      const body = { name: v.name, parentId: v.parentId ? Number(v.parentId) : null, sortOrder: Number(v.sortOrder) || 0 };
+      const body = { name: v.name, parentId: v.parentId ? Number(v.parentId) : null, sortOrder: Number(v.sortOrder) || 0, ...rateBody(v) };
       if (editing) await api.put(`/categories/${category.id}`, { ...body, isActive: v.isActive });
       else await api.post('/categories', body);
       onDone();
@@ -35,6 +43,7 @@ function CategoryForm({ category, parents, onDone, onClose }) {
             ))}
         </Field>
         <Field label="Sort order" type="number" min={0} max={9999} value={form.values.sortOrder} error={form.fields.sortOrder} onChange={form.set('sortOrder')} hint="Lower numbers are listed first." />
+        <CommissionRate form={form} unit="unit" inheritHint={form.values.parentId ? 'With none here, products use the parent category’s rate.' : 'Products in this category, and in sub-categories without their own rate.'} />
         {editing && <Checkbox label="Active" hint="Inactive categories cannot be chosen for new products." checked={form.values.isActive} onChange={form.set('isActive')} />}
         <div className="form-actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>
@@ -80,6 +89,7 @@ export default function CategoriesPage() {
             <tr>
               <th>Name</th>
               <th className="num">Active products</th>
+              <th>Staff commission</th>
               <th>Status</th>
               <th />
             </tr>
@@ -89,6 +99,9 @@ export default function CategoriesPage() {
               <tr key={c.id} className={c.isActive ? '' : 'inactive'}>
                 <td className={c.parentId ? 'indent' : ''}>{c.parentId ? c.name : <strong>{c.name}</strong>}</td>
                 <td className="num">{c.productCount}</td>
+                <td>
+                  {c.commissionType ? describeRate(c.commissionType, c.commissionValue) : c.parentId ? <span className="muted">As {parents.find((p) => p.id === c.parentId)?.name}</span> : 'None'}
+                </td>
                 <td>{c.isActive ? <span className="badge badge-ok">Active</span> : <span className="badge badge-muted">Inactive</span>}</td>
                 <td className="num">
                   {can('catalog.manage') && (

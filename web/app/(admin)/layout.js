@@ -1,5 +1,6 @@
 'use client';
 
+import { DialogProvider } from '@/components/Dialogs';
 import StaffShell from '@/components/StaffShell';
 import { StaffGate } from '@/lib/session';
 
@@ -7,7 +8,9 @@ import { StaffGate } from '@/lib/session';
 export default function AdminLayout({ children }) {
   return (
     <StaffGate>
-      <StaffShell>{children}</StaffShell>
+      <DialogProvider>
+        <StaffShell>{children}</StaffShell>
+      </DialogProvider>
     </StaffGate>
   );
 }

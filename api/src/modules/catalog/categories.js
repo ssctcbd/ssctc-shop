@@ -4,7 +4,7 @@ const { validateBody, idParam } = require('../../middleware/validate');
 const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { conflict, notFound, badRequest } = require('../../lib/errors');
-const { z, id, requiredText, flag } = require('../../lib/schemas');
+const { z, id, requiredText, flag, commissionType, commissionValue, commissionProblem } = require('../../lib/schemas');
 
 const router = express.Router();
 
@@ -16,6 +16,9 @@ const toApi = (row) => ({
   name: row.name,
   sortOrder: row.sort_order,
   isActive: Boolean(row.is_active),
+  // Staff commission on products in this category. A sub-category with no rate uses its parent's.
+  commissionType: row.commission_type ?? null,
+  commissionValue: row.commission_value ?? '0.00',
   productCount: row.product_count === undefined ? undefined : Number(row.product_count),
 });
 
@@ -23,6 +26,8 @@ const createSchema = z.strictObject({
   name: requiredText(1, 100),
   parentId: id.nullish().transform((v) => v ?? null),
   sortOrder: z.coerce.number().int().min(0).max(9999).default(0),
+  commissionType: commissionType.default(null),
+  commissionValue: commissionValue.default('0.00'),
 });
 
 const updateSchema = z.strictObject({
@@ -30,6 +35,8 @@ const updateSchema = z.strictObject({
   parentId: id.nullable().optional(),
   sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
   isActive: flag.optional(),
+  commissionType: commissionType.optional(),
+  commissionValue: commissionValue.optional(),
 });
 
 /**
@@ -63,13 +70,16 @@ router.get('/categories', staffWith('catalog.view'), async (_req, res) => {
 });
 
 router.post('/categories', staffWith('catalog.manage'), validateBody(createSchema), async (req, res) => {
-  const { name, parentId, sortOrder } = req.body;
+  const { name, parentId, sortOrder, commissionType: rateType } = req.body;
+  const rateValue = rateType ? req.body.commissionValue : '0.00';
+  const problem = commissionProblem(rateType, rateValue);
+  if (problem) throw badRequest('Please check the highlighted fields.', { fields: problem });
   const category = await transaction(async (conn) => {
     await assertValidParent(conn, parentId);
     await assertUniqueName(conn, name, parentId);
-    const [result] = await conn.execute('INSERT INTO categories (parent_id, name, sort_order) VALUES (?, ?, ?)', [parentId, name, sortOrder]);
-    await writeAudit({ conn, actorUserId: req.user.id, action: 'category.create', entityType: 'category', entityId: result.insertId, newValues: { name, parentId }, ip: req.ip });
-    return { id: result.insertId, parentId, name, sortOrder, isActive: true };
+    const [result] = await conn.execute('INSERT INTO categories (parent_id, name, sort_order, commission_type, commission_value) VALUES (?, ?, ?, ?, ?)', [parentId, name, sortOrder, rateType, rateValue]);
+    await writeAudit({ conn, actorUserId: req.user.id, action: 'category.create', entityType: 'category', entityId: result.insertId, newValues: { name, parentId, ...(rateType ? { commission: { type: rateType, value: rateValue } } : {}) }, ip: req.ip });
+    return { id: result.insertId, parentId, name, sortOrder, isActive: true, commissionType: rateType, commissionValue: rateValue };
   });
   res.status(201).json({ category });
 });
@@ -85,7 +95,12 @@ router.put('/categories/:id', staffWith('catalog.manage'), idParam, validateBody
       parent_id: req.body.parentId === undefined ? current.parent_id : req.body.parentId,
       sort_order: req.body.sortOrder ?? current.sort_order,
       is_active: req.body.isActive === undefined ? current.is_active : Number(req.body.isActive),
+      commission_type: req.body.commissionType === undefined ? current.commission_type : req.body.commissionType,
     };
+    // No rate means a value of zero, so switching the rate off clears it.
+    next.commission_value = next.commission_type ? (req.body.commissionValue ?? current.commission_value) : '0.00';
+    const problem = commissionProblem(next.commission_type, next.commission_value);
+    if (problem) throw badRequest('Please check the highlighted fields.', { fields: problem });
 
     if (next.parent_id !== current.parent_id) {
       await assertValidParent(conn, next.parent_id, req.id);
@@ -96,15 +111,15 @@ router.put('/categories/:id', staffWith('catalog.manage'), idParam, validateBody
     }
     if (next.name !== current.name || next.parent_id !== current.parent_id) await assertUniqueName(conn, next.name, next.parent_id, req.id);
 
-    await conn.execute('UPDATE categories SET name = ?, parent_id = ?, sort_order = ?, is_active = ? WHERE id = ?', [next.name, next.parent_id, next.sort_order, next.is_active, req.id]);
+    await conn.execute('UPDATE categories SET name = ?, parent_id = ?, sort_order = ?, is_active = ?, commission_type = ?, commission_value = ? WHERE id = ?', [next.name, next.parent_id, next.sort_order, next.is_active, next.commission_type, next.commission_value, req.id]);
     await writeAudit({
       conn,
       actorUserId: req.user.id,
       action: 'category.update',
       entityType: 'category',
       entityId: req.id,
-      oldValues: { name: current.name, parentId: current.parent_id, isActive: Boolean(current.is_active) },
-      newValues: { name: next.name, parentId: next.parent_id, isActive: Boolean(next.is_active) },
+      oldValues: { name: current.name, parentId: current.parent_id, isActive: Boolean(current.is_active), commission: { type: current.commission_type, value: current.commission_value } },
+      newValues: { name: next.name, parentId: next.parent_id, isActive: Boolean(next.is_active), commission: { type: next.commission_type, value: next.commission_value } },
       ip: req.ip,
     });
     return toApi({ id: req.id, ...next });

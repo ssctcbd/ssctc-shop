@@ -47,9 +47,20 @@ const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD.'
 /** Query-string flag: "1"/"true" → true, "0"/"false" → false. */
 const queryFlag = z.enum(['1', '0', 'true', 'false']).transform((v) => v === '1' || v === 'true');
 
+/** A commission rate: a percentage of what the line sold for, or a fixed amount per unit. null = none. */
+const commissionType = z.enum(['percent', 'fixed']).nullable();
+const commissionValue = money.refine((v) => toPaisa(v) < 10_000_000_000, 'Too large.');
+
+/** The checks a rate needs once type and value are both known. Returns { field: message } or null. */
+function commissionProblem(type, value) {
+  if (type === 'percent' && toPaisa(value) > 10000) return { commissionValue: 'A percentage cannot be more than 100.' };
+  if (type && toPaisa(value) === 0) return { commissionValue: 'Enter the rate, or choose no commission.' };
+  return null;
+}
+
 const paging = {
   page: z.coerce.number().int().min(1).max(100000).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
 };
 
-module.exports = { z, id, money, positiveMoney, quantity, optionalText, optionalTextUpdate, requiredText, flag, day, queryFlag, paging };
+module.exports = { z, id, money, positiveMoney, quantity, optionalText, optionalTextUpdate, requiredText, flag, day, queryFlag, paging, commissionType, commissionValue, commissionProblem };

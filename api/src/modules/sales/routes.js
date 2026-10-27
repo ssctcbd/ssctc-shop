@@ -8,7 +8,8 @@ const { applyStockMovement } = require('../../lib/stock');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { recalculateSale, recalculateCustomer } = require('../../lib/ledger');
 const { applyAdvanceMovement } = require('../../lib/advance');
-const { lockCashDrawer } = require('../../lib/cash');
+const { productRates, lineCommission, addCommissionEntry, earnsCommission, reverseSaleCommission, returnedShare } = require('../../lib/commission');
+const { lockOpenDrawer } = require('../../lib/cash');
 const { loadSale } = require('./detail');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, documentDate, today } = require('../../lib/dates');
@@ -188,7 +189,7 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
   res.status(201).json({ sale });
 
   async function createSale(conn) {
-    await lockCashDrawer(conn);
+    await lockOpenDrawer(conn);
     // --- customer -----------------------------------------------------------
     let customer = null;
     if (b.customerId) {
@@ -202,7 +203,7 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
     const productIds = [...new Set(b.items.filter((i) => i.type === 'product').map((i) => i.productId))];
     const serviceIds = [...new Set(b.items.filter((i) => i.type === 'service').map((i) => i.serviceId))];
     const [products] = productIds.length ? await conn.query('SELECT id, sku, name, unit, price, cost_price, track_stock, status FROM products WHERE id IN (?)', [productIds]) : [[]];
-    const [services] = serviceIds.length ? await conn.query('SELECT id, name, unit, default_price, price_editable, is_active FROM services WHERE id IN (?)', [serviceIds]) : [[]];
+    const [services] = serviceIds.length ? await conn.query('SELECT id, name, unit, default_price, price_editable, is_active, commission_type, commission_value FROM services WHERE id IN (?)', [serviceIds]) : [[]];
     const productById = new Map(products.map((p) => [p.id, p]));
     const serviceById = new Map(services.map((s) => [s.id, s]));
     const mayEditPrice = can(req, 'sales.edit_price');
@@ -231,7 +232,7 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
           if (!s.price_editable && !mayEditPrice) throw fieldError(at('unitPrice'), `"${s.name}" has a fixed rate (${s.default_price}).`);
           priceChanges.push({ name: s.name, listed: s.default_price, charged: unitPrice });
         }
-        line = { itemType: 'service', productId: null, serviceId: s.id, name: s.name, sku: null, unit: s.unit, unitPrice, cost: null, trackStock: false, warranty: null, serialNo: null };
+        line = { itemType: 'service', productId: null, serviceId: s.id, name: s.name, sku: null, unit: s.unit, unitPrice, cost: null, trackStock: false, warranty: null, serialNo: null, rate: s.commission_type ? { type: s.commission_type, value: s.commission_value } : null };
       }
       return { ...line, quantity: item.quantity, totalPaisa: toPaisa(line.unitPrice) * item.quantity };
     });
@@ -242,6 +243,16 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
     if (discount > subtotal) throw fieldError('discountAmount', `The discount cannot be more than the subtotal (${fromPaisa(subtotal)}).`);
     const total = subtotal - discount;
     if (total > 999_999_999_999) throw badRequest('The sale total is too large.');
+
+    // --- commission: earned by the seller, fixed on each line now -----------
+    const earns = await earnsCommission(conn, req.user.id);
+    const rateOfProduct = earns ? await productRates(conn, productIds) : new Map();
+    for (const l of lines) {
+      // What the line sold for after its share of the discount, as for a return.
+      const valuePaisa = subtotal === 0 ? 0 : Math.round((l.totalPaisa * total) / subtotal);
+      l.commissionPaisa = earns ? lineCommission(l.itemType === 'product' ? rateOfProduct.get(l.productId) : l.rate, { valuePaisa, quantity: l.quantity }) : 0;
+    }
+    const commission = lines.reduce((sum, l) => sum + l.commissionPaisa, 0);
 
     const mayVerify = can(req, 'payments.verify');
     // Cash is in hand, and advance is money the shop already holds: both are
@@ -298,9 +309,9 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
 
     for (const l of lines) {
       await conn.execute(
-        `INSERT INTO sale_items (sale_id, item_type, product_id, service_id, name_snapshot, sku_snapshot, unit_snapshot, unit_price, cost_price_snapshot, quantity, warranty, serial_no, line_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [saleId, l.itemType, l.productId, l.serviceId, l.name, l.sku, l.unit, l.unitPrice, l.cost, l.quantity, l.warranty, l.serialNo, fromPaisa(l.totalPaisa)],
+        `INSERT INTO sale_items (sale_id, item_type, product_id, service_id, name_snapshot, sku_snapshot, unit_snapshot, unit_price, cost_price_snapshot, quantity, warranty, serial_no, line_total, commission_amount)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [saleId, l.itemType, l.productId, l.serviceId, l.name, l.sku, l.unit, l.unitPrice, l.cost, l.quantity, l.warranty, l.serialNo, fromPaisa(l.totalPaisa), fromPaisa(l.commissionPaisa)],
       );
     }
 
@@ -324,6 +335,8 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
       }
     }
 
+    if (commission > 0) await addCommissionEntry(conn, { userId: req.user.id, deltaPaisa: commission, entryType: 'sale', saleId, note: invoiceNo, createdBy: req.user.id });
+
     await recalculateSale(conn, saleId);
     await recalculateCustomer(conn, customer ? customer.id : null);
 
@@ -333,10 +346,10 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
       action: 'sale.create',
       entityType: 'sale',
       entityId: saleId,
-      newValues: { invoiceNo, total: fromPaisa(total), paid: fromPaisa(paid), due: fromPaisa(due), ...(discount ? { discount: fromPaisa(discount) } : {}), ...(priceChanges.length ? { priceChanges } : {}), ...(b.date ? { date: b.date } : {}) },
+      newValues: { invoiceNo, total: fromPaisa(total), paid: fromPaisa(paid), due: fromPaisa(due), ...(discount ? { discount: fromPaisa(discount) } : {}), ...(commission ? { commission: fromPaisa(commission) } : {}), ...(priceChanges.length ? { priceChanges } : {}), ...(b.date ? { date: b.date } : {}) },
       ip: req.ip,
     });
-    return { id: saleId, invoiceNo, totalAmount: fromPaisa(total), paidAmount: fromPaisa(paid), dueAmount: fromPaisa(due), paymentStatus: due === 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid' };
+    return { id: saleId, invoiceNo, totalAmount: fromPaisa(total), paidAmount: fromPaisa(paid), dueAmount: fromPaisa(due), paymentStatus: due === 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid', commission: fromPaisa(commission) };
   }
 });
 
@@ -354,7 +367,7 @@ router.post('/sales/:id/void', staffWith('sales.void'), idParam, validateBody(vo
   const { reason, voidPayments } = req.body;
 
   await transaction(async (conn) => {
-    await lockCashDrawer(conn);
+    await lockOpenDrawer(conn);
     const [found] = await conn.execute('SELECT customer_id FROM sales WHERE id = ?', [req.id]);
     if (!found[0]) throw notFound('Sale not found.');
     const customerId = found[0].customer_id;
@@ -399,6 +412,8 @@ router.post('/sales/:id/void', staffWith('sales.void'), idParam, validateBody(vo
       }
       await writeAudit({ conn, actorUserId: req.user.id, action: 'payment.void', entityType: 'payment', entityId: p.id, oldValues: { status: 'active', amount: p.amount }, newValues: { status: 'void', withSale: sale.invoice_no }, ip: req.ip });
     }
+
+    await reverseSaleCommission(conn, { saleId: req.id, note: `Void ${sale.invoice_no}: ${reason}`, createdBy: req.user.id });
 
     await recalculateSale(conn, req.id);
     await recalculateCustomer(conn, customerId);
@@ -476,7 +491,7 @@ router.post('/sales/:id/returns', staffWith('sales.return'), idParam, validateBo
   res.status(201).json({ return: result });
 
   async function createReturn(conn) {
-    await lockCashDrawer(conn);
+    await lockOpenDrawer(conn);
     const [found] = await conn.execute('SELECT customer_id FROM sales WHERE id = ?', [req.id]);
     if (!found[0]) throw notFound('Sale not found.');
     const customerId = found[0].customer_id;
@@ -490,7 +505,7 @@ router.post('/sales/:id/returns', staffWith('sales.return'), idParam, validateBo
     if (toPaisa(sale.unverified_amount) > 0) throw conflict(`${sale.invoice_no} has a payment awaiting verification. Verify or void it before recording a return.`);
 
     const [soldRows] = await conn.execute(
-      `SELECT i.id, i.item_type, i.product_id, i.name_snapshot, i.unit_price, i.cost_price_snapshot, i.quantity,
+      `SELECT i.id, i.item_type, i.product_id, i.name_snapshot, i.unit_price, i.cost_price_snapshot, i.quantity, i.commission_amount,
               COALESCE((SELECT SUM(ri.quantity) FROM sale_return_items ri WHERE ri.sale_item_id = i.id), 0) AS returned
          FROM sale_items i WHERE i.sale_id = ?`,
       [req.id],
@@ -507,7 +522,9 @@ router.post('/sales/:id/returns', staffWith('sales.return'), idParam, validateBo
       if (item.quantity > left) throw fieldError(`items.${index}.quantity`, left === 0 ? `"${line.name_snapshot}" has already been returned in full.` : `Only ${left} of "${line.name_snapshot}" can still be returned.`);
       // Line price, less this line's share of the sale-level discount.
       const valuePaisa = subtotal === 0 ? 0 : Math.round((toPaisa(line.unit_price) * item.quantity * total) / subtotal);
-      return { saleItemId: line.id, productId: line.product_id, name: line.name_snapshot, unitPrice: line.unit_price, cost: line.cost_price_snapshot, quantity: item.quantity, valuePaisa };
+      // The commission this line earned on the units coming back.
+      const commissionPaisa = returnedShare(toPaisa(line.commission_amount), line.quantity, Number(line.returned), item.quantity);
+      return { saleItemId: line.id, productId: line.product_id, name: line.name_snapshot, unitPrice: line.unit_price, cost: line.cost_price_snapshot, quantity: item.quantity, valuePaisa, commissionPaisa };
     });
 
     // Rounding must never return more than the sale was worth.
@@ -538,6 +555,12 @@ router.post('/sales/:id/returns', staffWith('sales.return'), idParam, validateBo
       if (trackedIds.has(l.productId)) {
         await applyStockMovement(conn, { productId: l.productId, delta: l.quantity, movementType: 'sale_return', unitCost: l.cost, referenceType: 'return', referenceId: returnId, note: `${returnNo} · ${sale.invoice_no}`, userId: req.user.id });
       }
+    }
+
+    const commissionBack = lines.reduce((sum, l) => sum + l.commissionPaisa, 0);
+    if (commissionBack > 0) {
+      const [earner] = await conn.execute("SELECT user_id FROM staff_commission_entries WHERE sale_id = ? AND entry_type = 'sale' ORDER BY id LIMIT 1", [req.id]);
+      await addCommissionEntry(conn, { userId: earner[0].user_id, deltaPaisa: -commissionBack, entryType: 'sale_return', saleId: req.id, saleReturnId: returnId, note: `${returnNo} · ${sale.invoice_no}`, createdBy: req.user.id });
     }
 
     if (refund > 0 && b.refundMethod === 'advance_credit') {

@@ -5,7 +5,7 @@ const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { applyStockMovement } = require('../../lib/stock');
 const { nextDocumentNumber } = require('../../lib/documents');
-const { lockCashDrawer } = require('../../lib/cash');
+const { lockCashDrawer, lockOpenDrawer } = require('../../lib/cash');
 const { recalculatePurchase, recalculatePayable } = require('../../lib/payables');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, documentDate } = require('../../lib/dates');
@@ -284,7 +284,8 @@ router.post('/purchases', staffWith('purchases.manage'), validateBody(purchaseSc
   res.status(201).json({ purchase });
 
   async function createPurchase(conn) {
-    await lockCashDrawer(conn);
+    // A bill paid on the spot moves money, so it needs the cash day open.
+    await (paidPaisa > 0 ? lockOpenDrawer(conn) : lockCashDrawer(conn));
     const supplier = await lockSupplier(conn, b.supplierId);
     if (!supplier.is_active) throw fieldError('supplierId', 'This supplier is inactive.');
 

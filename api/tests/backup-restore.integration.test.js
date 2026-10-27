@@ -1,4 +1,4 @@
-const { resetDatabase, startApp } = require('./helpers/setup');
+const { resetDatabase, startApp, openCashDay } = require('./helpers/setup');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -41,6 +41,7 @@ test.before(async () => {
   staff = app.client();
   await owner.post('/auth/login', OWNER);
   await staff.post('/auth/login', STAFF);
+  await openCashDay(owner);
   await db.query(`DROP DATABASE IF EXISTS \`${RESTORE_DB}\``);
 
   // A little of everything, so every table has rows.
@@ -58,7 +59,7 @@ test.before(async () => {
   const tea = (await owner.get('/expense-categories')).body.categories[0].id;
   await owner.post('/expenses', { idempotencyKey: key(), categoryId: tea, title: 'Tea', amount: 50 });
   const expected = (await owner.get('/cash-register/current')).body.expectedCash;
-  await owner.post('/cash-register/close', { openingCash: '0', expectedCash: expected, actualCash: expected });
+  await owner.post('/cash-register/close', { expectedCash: expected, actualCash: expected });
 });
 
 test.after(async () => {
@@ -213,7 +214,7 @@ it('the housekeeping job removes only long-expired sessions and old login attemp
 
 it('the System screen reports that every balance agrees with its records, and notices when one does not', async () => {
   const status = (await owner.get('/system/status')).body;
-  assert.equal(status.checks.length, 7);
+  assert.equal(status.checks.length, 8);
   // How the database is being used, and the address the server sees: both matter on shared hosting.
   assert.match(status.server.mysql, /^8./);
   assert.ok(['READ-COMMITTED', 'REPEATABLE-READ'].includes(status.server.isolation));
@@ -238,7 +239,7 @@ it('the launch check passes the data checks and fails loudly on an unsafe config
   assert.equal(run.status, 1);
   assert.match(run.stdout, /FAIL  NODE_ENV is "production"/);
   assert.match(run.stdout, /FAIL  The site address uses HTTPS/);
-  assert.match(run.stdout, /PASS  All 4 migrations have been run/);
+  assert.match(run.stdout, /PASS  All 5 migrations have been run/);
   assert.match(run.stdout, /PASS  There is an active Owner account/);
   assert.match(run.stdout, /PASS  Stock equals its movement history/);
   assert.match(run.stdout, /PASS  Every customer's due equals their unpaid bills/);

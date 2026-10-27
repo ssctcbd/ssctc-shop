@@ -4,11 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Bill, { LAYOUTS } from '@/components/Bill';
 import { Notice } from '@/components/Form';
-import { formatDateTime, formatMoney } from '@/lib/format';
+import { formatDateTime, formatMoney, whatsappNumber } from '@/lib/format';
 import { useFetch } from '@/lib/useFetch';
-
-/** "01712345678" -> "8801712345678", the form wa.me expects. */
-const whatsappNumber = (phone) => (phone && /^01\d{9}$/.test(phone) ? `88${phone}` : null);
 
 export default function InvoicePage() {
   const [params, setParams] = useState(null);

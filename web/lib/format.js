@@ -20,4 +20,10 @@ export function lineTotal(unitPrice, quantity) {
   return (paisa / 100).toFixed(2);
 }
 
+/** "01712345678" -> "8801712345678", the form wa.me expects; null for anything else. */
+export const whatsappNumber = (phone) => (phone && /^01\d{9}$/.test(phone) ? `88${phone}` : null);
+
+/** A link that opens WhatsApp with the message typed in, ready to send from the shop's own number. */
+export const whatsappLink = (phone, text) => `https://wa.me/${whatsappNumber(phone)}?text=${encodeURIComponent(text)}`;
+
 export const sumMoney = (amounts) => (amounts.reduce((sum, a) => sum + Math.round(Number(a || 0) * 100), 0) / 100).toFixed(2);

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import Link from 'next/link';
+import { useDialogs } from '@/components/Dialogs';
 import Modal from '@/components/Modal';
 import { Checkbox, Field, Notice, SubmitButton } from '@/components/Form';
 import { api } from '@/lib/api';
@@ -160,17 +161,17 @@ function PayForm({ supplier, onDone, onClose }) {
 }
 
 function PaymentsDialog({ supplier, canManage, onChanged, onClose }) {
+  const { askReason } = useDialogs();
   const { data, error, reload } = useFetch(`/supplier-payments?supplierId=${supplier.id}&pageSize=200`);
   const [actionError, setActionError] = useState('');
   const items = data?.items || [];
 
   async function voidPayment(p) {
-    const reason = window.prompt(`Why is ${p.voucherNo} (${formatMoney(p.amount)}) being voided? Its bills will be owed again.`);
+    const reason = await askReason({ title: 'Void supplier payment', message: `Why is ${p.voucherNo} (${formatMoney(p.amount)}) being voided? Its bills will be owed again.`, confirmLabel: 'Void payment' });
     if (reason === null) return;
-    if (reason.trim().length < 3) return setActionError('Write a reason of at least 3 characters to void a payment.');
     setActionError('');
     try {
-      await api.post(`/supplier-payments/${p.id}/void`, { reason: reason.trim() });
+      await api.post(`/supplier-payments/${p.id}/void`, { reason });
       reload();
       onChanged();
     } catch (err) {

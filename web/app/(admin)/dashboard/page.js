@@ -58,18 +58,30 @@ export default function DashboardPage() {
                 label="Estimated profit today"
                 value={signed(d.profit.netProfit)}
                 tone={Number(d.profit.netProfit) < 0 ? 'due' : 'ok'}
-                sub={`Gross ${signed(d.profit.grossProfit)} − expenses ${formatMoney(d.profit.expenses)}${d.profit.uncostedLines > 0 ? ' · some items have no cost price' : ''}`}
+                sub={`Gross ${signed(d.profit.grossProfit)}${Number(d.profit.commission) > 0 ? ` − commission ${formatMoney(d.profit.commission)}` : ''} − expenses ${formatMoney(d.profit.expenses)}${d.profit.uncostedLines > 0 ? ' · some items have no cost price' : ''}`}
               />
             )}
-            {d.cash && (
-              <Stat
-                label={d.cash.hasOpening ? 'Cash that should be in the drawer' : 'Cash taken so far'}
-                value={signed(d.cash.expected)}
-                sub={d.cash.closedToday ? "Today's cash is closed" : d.cash.hasOpening ? 'Not closed yet today' : 'The cash has never been closed'}
-                href="/cash/"
-                linkText="Cash closing"
-              />
-            )}
+            {d.cash &&
+              (d.cash.status === 'open' ? (
+                <Stat
+                  label="Cash that should be in the drawer"
+                  value={signed(d.cash.expected)}
+                  tone={d.cash.stale ? 'due' : ''}
+                  sub={d.cash.stale ? 'Yesterday was never handed over: close it first' : 'The cash is open'}
+                  href="/cash/"
+                  linkText={d.cash.stale ? 'Close it now' : 'Hand over tonight'}
+                />
+              ) : (
+                <Stat
+                  label="Cash in the drawer"
+                  value={d.cash.carried === null ? '—' : formatMoney(d.cash.carried)}
+                  tone="due"
+                  sub={d.cash.lastClosingDate ? 'Handed over. Open the cash before the first sale.' : 'Open the cash before the first sale.'}
+                  href="/cash/"
+                  linkText="Open the cash"
+                />
+              ))}
+            {d.myCommission && <Stat label="My commission today" value={signed(d.myCommission.earnedToday)} tone="ok" sub={`Still to be paid: ${signed(d.myCommission.balance)}`} href="/commission/" linkText="See my commission" />}
           </div>
 
           <div className="grid">

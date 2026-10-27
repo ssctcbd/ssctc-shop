@@ -1,4 +1,4 @@
-const { resetDatabase, startApp } = require('./helpers/setup');
+const { resetDatabase, startApp, openCashDay } = require('./helpers/setup');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -29,6 +29,7 @@ test.before(async () => {
   staff = app.client();
   await owner.post('/auth/login', OWNER);
   await staff.post('/auth/login', STAFF);
+  await openCashDay(owner);
 
   ids.category = (await owner.post('/categories', { name: 'Gadgets' })).body.category.id;
   ids.pendrive = (await owner.post('/products', { categoryId: ids.category, sku: 'PD32', name: 'Pendrive 32GB', price: 450, costPrice: 380, openingStock: 10 })).body.product.id;
@@ -298,12 +299,14 @@ it('one sale submitted ten times at once is stored once', async () => {
 
 // --- opening due ------------------------------------------------------------
 
-it('an opening due is recorded once and adds to the customer balance', async () => {
-  const res = await staff.post(`/customers/${ids.noPhone}/opening-balance`, { amount: '1200', note: 'From the old khata' });
+it('an opening due is recorded once, only by the Owner, and adds to the customer balance', async () => {
+  // Staff may add and edit customers, but never put a due on someone without a sale.
+  assert.equal((await staff.post(`/customers/${ids.noPhone}/opening-balance`, { amount: '1200' })).status, 403);
+  const res = await owner.post(`/customers/${ids.noPhone}/opening-balance`, { amount: '1200', note: 'From the old khata' });
   assert.equal(res.status, 201);
   assert.match(res.body.sale.invoiceNo, /^INV-\d{6}$/);
   assert.equal(await dueOf(ids.noPhone), '1200.00');
-  assert.equal((await staff.post(`/customers/${ids.noPhone}/opening-balance`, { amount: '5' })).status, 409);
+  assert.equal((await owner.post(`/customers/${ids.noPhone}/opening-balance`, { amount: '5' })).status, 409);
   const detail = (await owner.get(`/customers/${ids.noPhone}`)).body;
   assert.deepEqual([detail.sales[0].saleType, detail.sales[0].dueAmount], ['opening_due', '1200.00']);
   assert.equal((await staff.get('/customers?hasDue=1')).body.totalDue, '1800.00');

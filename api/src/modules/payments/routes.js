@@ -5,7 +5,7 @@ const { staffWith, requireStaff, enforceMustChangePassword } = require('../../mi
 const { writeAudit } = require('../../lib/audit');
 const { recalculateSale, recalculateCustomer } = require('../../lib/ledger');
 const { applyAdvanceMovement } = require('../../lib/advance');
-const { lockCashDrawer } = require('../../lib/cash');
+const { lockCashDrawer, lockOpenDrawer } = require('../../lib/cash');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { toPaisa, fromPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, documentDate, today } = require('../../lib/dates');
@@ -163,7 +163,7 @@ router.post('/payments', staffWith('payments.create'), validateBody(collectSchem
 
   try {
     await transaction(async (conn) => {
-      await lockCashDrawer(conn);
+      await lockOpenDrawer(conn);
       const [customers] = await conn.execute('SELECT id, name FROM customers WHERE id = ? FOR UPDATE', [b.customerId]);
       const customer = customers[0];
       if (!customer) throw fieldError('customerId', 'Customer not found.');
@@ -249,10 +249,12 @@ const voidSchema = z.strictObject({ reason: requiredText(3, 255) });
  * recalculate. Lock order as everywhere: customer → sales (ascending) → payment.
  * `change(conn, payment)` must make a conditional UPDATE and return its
  * affectedRows, so that two people acting at once produce one change.
+ * `movesMoney`: a void hands money back, so it needs the cash day open;
+ * verifying only confirms money that is already recorded.
  */
-async function changePayment(req, { action, change, alreadyDone }) {
+async function changePayment(req, { action, change, alreadyDone, movesMoney = false }) {
   await transaction(async (conn) => {
-    await lockCashDrawer(conn);
+    await (movesMoney ? lockOpenDrawer(conn) : lockCashDrawer(conn));
     const [found] = await conn.execute('SELECT customer_id FROM payments WHERE id = ?', [req.id]);
     if (!found[0]) throw notFound('Payment not found.');
     const customerId = found[0].customer_id;
@@ -317,6 +319,7 @@ router.post('/payments/:id/unverify', staffWith('payments.verify'), idParam, asy
 router.post('/payments/:id/void', staffWith('payments.void'), idParam, validateBody(voidSchema), async (req, res) => {
   const payment = await changePayment(req, {
     action: 'payment.void',
+    movesMoney: true,
     alreadyDone: 'This payment has been voided.',
     change: async (conn, current) => {
       const [updated] = await conn.execute("UPDATE payments SET status = 'void', void_reason = ?, voided_by = ?, voided_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'active'", [req.body.reason, req.user.id, req.id]);

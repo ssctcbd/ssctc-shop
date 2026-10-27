@@ -20,6 +20,8 @@ const createUserSchema = z.strictObject({
   phone: z.string().trim().max(15).optional(),
   password: newPassword,
   role: z.enum(['owner', 'staff']),
+  // Earns commission on the sales they record. Left out: Staff do, Owners do not.
+  commissionEnabled: z.boolean().optional(),
 });
 
 router.get('/roles', ownerOnly, async (_req, res) => {
@@ -32,16 +34,17 @@ router.get('/roles', ownerOnly, async (_req, res) => {
 
 router.get('/users', ownerOnly, async (_req, res) => {
   const users = await query(
-    `SELECT u.id, u.name, u.username, u.phone, u.status, u.must_change_password AS mustChangePassword,
+    `SELECT u.id, u.name, u.username, u.phone, u.status, u.must_change_password AS mustChangePassword, u.commission_enabled AS commissionEnabled,
             u.last_login_at AS lastLoginAt, u.created_at AS createdAt, r.code AS role
        FROM users u JOIN roles r ON r.id = u.role_id
       ORDER BY u.id`,
   );
-  res.json({ users: users.map((u) => ({ ...u, mustChangePassword: Boolean(u.mustChangePassword) })) });
+  res.json({ users: users.map((u) => ({ ...u, mustChangePassword: Boolean(u.mustChangePassword), commissionEnabled: Boolean(u.commissionEnabled) })) });
 });
 
 router.post('/users', ownerOnly, validateBody(createUserSchema), async (req, res) => {
   const { name, username: uname, phone = null, password, role } = req.body;
+  const commissionEnabled = req.body.commissionEnabled ?? role === 'staff';
 
   const roles = await query('SELECT id FROM roles WHERE code = ?', [role]);
   if (!roles[0]) throw badRequest('Unknown role.');
@@ -52,8 +55,8 @@ router.post('/users', ownerOnly, validateBody(createUserSchema), async (req, res
     try {
       // The new user is given the password by the Owner, so must change it on first login.
       [result] = await conn.execute(
-        'INSERT INTO users (role_id, name, username, phone, password_hash, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
-        [roles[0].id, name, uname, phone, passwordHash],
+        'INSERT INTO users (role_id, name, username, phone, password_hash, must_change_password, commission_enabled) VALUES (?, ?, ?, ?, ?, 1, ?)',
+        [roles[0].id, name, uname, phone, passwordHash, Number(commissionEnabled)],
       );
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') throw conflict('Please check the highlighted fields.', { fields: { username: 'This username is already taken.' } });
@@ -65,13 +68,13 @@ router.post('/users', ownerOnly, validateBody(createUserSchema), async (req, res
       action: 'user.create',
       entityType: 'user',
       entityId: result.insertId,
-      newValues: { name, username: uname, role },
+      newValues: { name, username: uname, role, commissionEnabled },
       ip: req.ip,
     });
     return result.insertId;
   });
 
-  res.status(201).json({ user: { id, name, username: uname, role } });
+  res.status(201).json({ user: { id, name, username: uname, role, commissionEnabled } });
 });
 
 const updateUserSchema = z.strictObject({
@@ -79,6 +82,7 @@ const updateUserSchema = z.strictObject({
   phone: z.string().trim().max(15).nullable().optional(),
   role: z.enum(['owner', 'staff']).optional(),
   status: z.enum(['active', 'blocked']).optional(),
+  commissionEnabled: z.boolean().optional(),
 });
 
 const resetPasswordSchema = z.strictObject({ password: newPassword });
@@ -94,11 +98,18 @@ router.put('/users/:id', ownerOnly, idParam, validateBody(updateUserSchema), asy
   await transaction(async (conn) => {
     // Every Owner row is locked, so two changes cannot each remove "the other" Owner.
     await conn.execute("SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = 'owner' FOR UPDATE");
-    const [rows] = await conn.execute('SELECT u.id, u.name, u.phone, u.status, r.code AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? FOR UPDATE', [req.id]);
-    const current = rows[0];
-    if (!current) throw notFound('User not found.');
+    const [rows] = await conn.execute('SELECT u.id, u.name, u.phone, u.status, u.commission_enabled, r.code AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ? FOR UPDATE', [req.id]);
+    const found = rows[0];
+    if (!found) throw notFound('User not found.');
+    const current = { name: found.name, phone: found.phone, role: found.role, status: found.status, commissionEnabled: Boolean(found.commission_enabled) };
 
-    const next = { name: b.name ?? current.name, phone: b.phone === undefined ? current.phone : b.phone || null, role: b.role ?? current.role, status: b.status ?? current.status };
+    const next = {
+      name: b.name ?? current.name,
+      phone: b.phone === undefined ? current.phone : b.phone || null,
+      role: b.role ?? current.role,
+      status: b.status ?? current.status,
+      commissionEnabled: b.commissionEnabled ?? current.commissionEnabled,
+    };
     const changed = Object.keys(next).filter((k) => next[k] !== current[k]);
     if (changed.length === 0) return;
 
@@ -113,7 +124,7 @@ router.put('/users/:id', ownerOnly, idParam, validateBody(updateUserSchema), asy
     }
 
     const [roles] = await conn.execute('SELECT id FROM roles WHERE code = ?', [next.role]);
-    await conn.execute('UPDATE users SET name = ?, phone = ?, role_id = ?, status = ? WHERE id = ?', [next.name, next.phone, roles[0].id, next.status, req.id]);
+    await conn.execute('UPDATE users SET name = ?, phone = ?, role_id = ?, status = ?, commission_enabled = ? WHERE id = ?', [next.name, next.phone, roles[0].id, next.status, Number(next.commissionEnabled), req.id]);
     if (next.status === 'blocked') await conn.execute('UPDATE sessions SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL', [req.id]);
     await writeAudit({
       conn,
@@ -126,8 +137,9 @@ router.put('/users/:id', ownerOnly, idParam, validateBody(updateUserSchema), asy
       ip: req.ip,
     });
   });
-  const rows = await query('SELECT u.id, u.name, u.username, u.phone, u.status, r.code AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ?', [req.id]);
-  res.json({ user: rows[0] });
+  const rows = await query('SELECT u.id, u.name, u.username, u.phone, u.status, u.commission_enabled, r.code AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ?', [req.id]);
+  const { commission_enabled: commissionEnabled, ...user } = rows[0];
+  res.json({ user: { ...user, commissionEnabled: Boolean(commissionEnabled) } });
 });
 
 /**

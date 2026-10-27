@@ -121,4 +121,15 @@ async function startApp() {
   return { base, client, stop };
 }
 
-module.exports = { resetDatabase, runSeeds, startApp, ORIGIN };
+/**
+ * Open the cash day, as the shop does every morning: nothing that moves money
+ * can be recorded until it is. Counts exactly what the last closing left.
+ */
+async function openCashDay(client, countedCash) {
+  const current = (await client.get('/cash-register/current')).body;
+  const res = await client.post('/cash-register/open', { countedCash: countedCash ?? current.carriedCash ?? '0', carriedCash: current.carriedCash });
+  if (res.status !== 201) throw new Error(`Could not open the cash day: ${JSON.stringify(res.body)}`);
+  return res.body.opening;
+}
+
+module.exports = { resetDatabase, runSeeds, startApp, openCashDay, ORIGIN };

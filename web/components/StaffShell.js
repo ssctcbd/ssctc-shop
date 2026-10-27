@@ -37,7 +37,9 @@ const NAV = [
     group: 'Money',
     items: [
       { label: 'Expenses', href: '/expenses/', permission: 'expenses.view' },
-      { label: 'Cash closing', href: '/cash/', permission: 'cash.view' },
+      { label: 'Cash', href: '/cash/', permission: 'cash.view' },
+      { label: 'Commission', href: '/commission/', permission: 'commission.manage' },
+      { label: 'My commission', href: '/commission/', permission: 'commission.view_own' },
       { label: 'Reports', href: '/reports/', permission: 'reports.view' },
     ],
   },

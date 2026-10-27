@@ -71,3 +71,61 @@ test('a chosen PIN must be six digits and not trivially guessable', () => {
   assert.equal(changePinSchema.safeParse({ currentPin: '482139', newPin: '123456' }).success, false);
   assert.equal(changePinSchema.safeParse({ currentPin: '123456', newPin: '482139' }).success, true);
 });
+
+test('every route module loads, so a typo cannot hide behind skipped integration tests', () => {
+  const { createApp } = require('../src/app');
+  assert.equal(typeof createApp(), 'function');
+});
+
+test('commission: a percentage of what the line sold for, or a fixed amount per unit, never more than the line', () => {
+  const { lineCommission } = require('../src/lib/commission');
+  assert.equal(lineCommission(null, { valuePaisa: 50000, quantity: 1 }), 0);
+  // 10% of 450.00 = 45.00; 12.5% of 99.99 = 12.49875 → 12.50
+  assert.equal(lineCommission({ type: 'percent', value: '10.00' }, { valuePaisa: 45000, quantity: 1 }), 4500);
+  assert.equal(lineCommission({ type: 'percent', value: '12.50' }, { valuePaisa: 9999, quantity: 3 }), 1250);
+  // 0.50 a copy × 100 copies = 50.00
+  assert.equal(lineCommission({ type: 'fixed', value: '0.50' }, { valuePaisa: 20000, quantity: 100 }), 5000);
+  // A fixed rate on a line given away for almost nothing earns no more than the line brought in.
+  assert.equal(lineCommission({ type: 'fixed', value: '5.00' }, { valuePaisa: 300, quantity: 2 }), 300);
+});
+
+test('commission: returning a line in parts takes back exactly what it earned, to the paisa', () => {
+  const { returnedShare } = require('../src/lib/commission');
+  // 1.00 earned on 3 units: 0.33 + 0.34 + 0.33 = 1.00
+  const parts = [returnedShare(100, 3, 0, 1), returnedShare(100, 3, 1, 1), returnedShare(100, 3, 2, 1)];
+  assert.equal(parts.reduce((a, b) => a + b, 0), 100);
+  assert.equal(returnedShare(100, 3, 0, 3), 100);
+  assert.equal(returnedShare(0, 5, 0, 2), 0);
+});
+
+test('commission rates: a percentage above 100 or a rate of zero is refused', () => {
+  const { commissionProblem } = require('../src/lib/schemas');
+  assert.equal(commissionProblem(null, '0.00'), null);
+  assert.equal(commissionProblem('percent', '100.00'), null);
+  assert.ok(commissionProblem('percent', '100.01').commissionValue);
+  assert.ok(commissionProblem('fixed', '0.00').commissionValue);
+  assert.equal(commissionProblem('fixed', '1000.00'), null);
+});
+
+test('the shop day runs until 4 in the morning, Dhaka time', (t) => {
+  const { cashDate } = require('../src/lib/cash');
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-27T21:30:00Z') }); // 03:30 on the 28th in Dhaka
+  assert.equal(cashDate(), '2026-10-27');
+  t.mock.timers.setTime(Date.parse('2026-10-27T22:00:00Z')); // 04:00 on the 28th
+  assert.equal(cashDate(), '2026-10-28');
+  t.mock.timers.setTime(Date.parse('2026-10-28T17:59:00Z')); // 23:59 on the 28th
+  assert.equal(cashDate(), '2026-10-28');
+});
+
+test('recovery codes are XXXXX-XXXXX, unambiguous, and matched ignoring case, spaces and dashes', () => {
+  const { newRecoveryCode, hashRecoveryCode } = require('../src/lib/crypto');
+  const { recoverSchema } = require('../src/modules/auth/schemas');
+  const codes = new Set(Array.from({ length: 200 }, newRecoveryCode));
+  assert.equal(codes.size, 200);
+  for (const code of codes) assert.match(code, /^[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/);
+  const [code] = codes;
+  assert.equal(hashRecoveryCode(code.toLowerCase().replace('-', ' ')), hashRecoveryCode(code));
+  const parsed = recoverSchema.parse({ username: 'Owner', code: ` ${code.toLowerCase()} `, newPassword: 'a-new-password-1' });
+  assert.equal(parsed.code, code.replace('-', ''));
+  assert.equal(recoverSchema.safeParse({ username: 'owner', code, newPassword: 'short' }).success, false);
+});
