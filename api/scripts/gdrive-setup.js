@@ -20,6 +20,19 @@ const { execFile } = require('node:child_process');
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const FOLDER_NAME = 'SSCTC Shop backups';
 
+/** fetch, tried again when the connection itself fails: Google's code works only once, so a brief network drop must not waste it. */
+async function fetchWithRetry(url, options, attempts = 5) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      if (attempt >= attempts) throw err;
+      console.log('Connection problem, trying again...');
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  }
+}
+
 function ask(rl, question) {
   return new Promise((resolve) => rl.question(question, (answer) => resolve(answer.trim())));
 }
@@ -70,7 +83,7 @@ async function main() {
     server.close();
   }
 
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+  const tokenRes = await fetchWithRetry('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code', code_verifier: verifier }),
@@ -79,7 +92,7 @@ async function main() {
   if (!tokenRes.ok) throw new Error(`Google did not give a token: ${tokens.error_description || tokens.error}`);
   if (!tokens.refresh_token) throw new Error('Google gave no refresh token. Remove the app at myaccount.google.com/permissions and run this again.');
 
-  const folderRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+  const folderRes = await fetchWithRetry('https://www.googleapis.com/drive/v3/files?fields=id', {
     method: 'POST',
     headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),

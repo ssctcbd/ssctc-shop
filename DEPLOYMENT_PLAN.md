@@ -199,7 +199,11 @@ Done on the live account (2026-10-31):
   the page's variables still win. The four `GDRIVE_*` lines go in the same file.
 - `/home/sscompu2/ssctc-shop-backups` (0700) holds the dumps and `cron.log`.
 - Cron: `50 23 * * *`, the curl line, appending to `cron.log`. A test run from
-  cron at 18:06 wrote a backup. Google Drive is not connected yet.
+  cron at 18:06 wrote a backup.
+- Google Drive is connected to the shop's account (Google Cloud project
+  `ssctc-shop-backup`, app published, client "backup"). The first copy reached
+  the "SSCTC Shop backups" folder on 2026-10-31. The branding page needs
+  `https://shop.sscomputertrainingcentre.com/privacy/` (`web/public/privacy/`).
 - In a crontab `%` means a new line: never put a bare `%` in a cron command.
 
 ## 6. Backup and restore

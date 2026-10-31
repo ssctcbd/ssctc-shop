@@ -24,3 +24,4 @@ release/
 # cPanel API token for deploying; never commit it
 cpanel-token.txt
 cron-key.txt
+gdrive.txt
