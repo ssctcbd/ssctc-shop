@@ -8,7 +8,7 @@ const { applyStockMovement } = require('../../lib/stock');
 const { nextDocumentNumber } = require('../../lib/documents');
 const { recalculateSale, recalculateCustomer } = require('../../lib/ledger');
 const { applyAdvanceMovement } = require('../../lib/advance');
-const { productRates, lineCommission, addCommissionEntry, earnsCommission, reverseSaleCommission, returnedShare } = require('../../lib/commission');
+const { productRates, ownServiceRates, lineCommission, addCommissionEntry, earnsCommission, reverseSaleCommission, returnedShare } = require('../../lib/commission');
 const { lockOpenDrawer } = require('../../lib/cash');
 const { loadSale } = require('./detail');
 const { toPaisa, fromPaisa } = require('../../lib/money');
@@ -246,11 +246,12 @@ router.post('/sales', staffWith('sales.create'), validateBody(saleSchema), async
 
     // --- commission: earned by the seller, fixed on each line now -----------
     const earns = await earnsCommission(conn, req.user.id);
-    const rateOfProduct = earns ? await productRates(conn, productIds) : new Map();
+    const rateOfProduct = earns ? await productRates(conn, productIds, req.user.id) : new Map();
+    const ownRateOfService = earns ? await ownServiceRates(conn, serviceIds, req.user.id) : new Map();
     for (const l of lines) {
       // What the line sold for after its share of the discount, as for a return.
       const valuePaisa = subtotal === 0 ? 0 : Math.round((l.totalPaisa * total) / subtotal);
-      l.commissionPaisa = earns ? lineCommission(l.itemType === 'product' ? rateOfProduct.get(l.productId) : l.rate, { valuePaisa, quantity: l.quantity }) : 0;
+      l.commissionPaisa = earns ? lineCommission(l.itemType === 'product' ? rateOfProduct.get(l.productId) : ownRateOfService.get(l.serviceId) || l.rate, { valuePaisa, quantity: l.quantity }) : 0;
     }
     const commission = lines.reduce((sum, l) => sum + l.commissionPaisa, 0);
 

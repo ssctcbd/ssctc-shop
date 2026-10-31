@@ -4,11 +4,11 @@ const { validateBody, validateQuery, idParam } = require('../../middleware/valid
 const { staffWith } = require('../../middleware/session');
 const { writeAudit } = require('../../lib/audit');
 const { lockCashDrawer, lockOpenDrawer } = require('../../lib/cash');
-const { addCommissionEntry, commissionBalance } = require('../../lib/commission');
+const { addCommissionEntry, commissionBalance, categoryRate } = require('../../lib/commission');
 const { toPaisa, fromPaisa, fromSignedPaisa } = require('../../lib/money');
 const { dayStart, dayEnd, today } = require('../../lib/dates');
 const { badRequest, conflict, notFound } = require('../../lib/errors');
-const { z, id, positiveMoney, optionalText, requiredText, day, paging } = require('../../lib/schemas');
+const { z, id, positiveMoney, optionalText, requiredText, day, paging, commissionType, commissionValue } = require('../../lib/schemas');
 
 // Staff commission (lib/commission.js). Every staff member sees their own
 // earnings and what they have been paid; the Owner sees everyone's and pays it.
@@ -123,6 +123,107 @@ router.get('/commission/staff', staffWith('commission.manage'), async (_req, res
 
 router.get('/commission/staff/:id', staffWith('commission.manage'), idParam, validateQuery(historySchema), async (req, res) => {
   res.json(await statement(req.id, req.q));
+});
+
+// --- a staff member's own rates ----------------------------------------------
+
+const toRate = (type, value) => (type ? { type, value } : null);
+
+/**
+ * Every active service and category with its general rate, this person's own
+ * rate if any, and the rate that applies to them (own rate first, as at a sale).
+ */
+async function ratesFor(userId) {
+  const services = await query(
+    `SELECT s.id, s.name, s.unit, s.commission_type, s.commission_value, own.commission_type AS own_type, own.commission_value AS own_value
+       FROM services s LEFT JOIN staff_commission_rates own ON own.user_id = ? AND own.service_id = s.id
+      WHERE s.is_active = 1 ORDER BY s.service_type, s.sort_order, s.name`,
+    [userId],
+  );
+  const categories = await query(
+    `SELECT c.id, c.name, c.parent_id, pc.name AS parent_name, c.commission_type, c.commission_value,
+            pc.commission_type AS parent_commission_type, pc.commission_value AS parent_commission_value,
+            own.commission_type AS own_type, own.commission_value AS own_value, pown.commission_type AS parent_own_type, pown.commission_value AS parent_own_value
+       FROM categories c LEFT JOIN categories pc ON pc.id = c.parent_id
+       LEFT JOIN staff_commission_rates own ON own.user_id = ? AND own.category_id = c.id
+       LEFT JOIN staff_commission_rates pown ON pown.user_id = ? AND pown.category_id = pc.id
+      WHERE c.is_active = 1 ORDER BY COALESCE(pc.sort_order, c.sort_order), COALESCE(pc.name, c.name), c.parent_id IS NOT NULL, c.sort_order, c.name`,
+    [userId, userId],
+  );
+  return {
+    services: services.map((s) => ({
+      id: s.id,
+      name: s.name,
+      unit: s.unit,
+      general: toRate(s.commission_type, s.commission_value),
+      own: toRate(s.own_type, s.own_value),
+      applies: toRate(s.own_type, s.own_value) || toRate(s.commission_type, s.commission_value),
+    })),
+    categories: categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      parentName: c.parent_name,
+      general: toRate(c.commission_type, c.commission_value) || toRate(c.parent_commission_type, c.parent_commission_value),
+      own: toRate(c.own_type, c.own_value),
+      applies: categoryRate(c),
+    })),
+  };
+}
+
+// Staff see only their own rates; only the Owner can ask about anyone else's.
+router.get('/commission/me/rates', staffWith('commission.view_own'), async (req, res) => {
+  res.json(await ratesFor(req.user.id));
+});
+
+router.get('/commission/staff/:id/rates', staffWith('commission.manage'), idParam, async (req, res) => {
+  const [user] = await query('SELECT id, name FROM users WHERE id = ?', [req.id]);
+  if (!user) throw notFound('User not found.');
+  res.json({ user, ...(await ratesFor(req.id)) });
+});
+
+const staffRateSchema = z.strictObject({
+  target: z.enum(['service', 'category']),
+  targetId: id,
+  // null removes this person's own rate: the general rate applies again.
+  commissionType,
+  // Zero is allowed here: this person earns nothing on this item.
+  commissionValue: commissionValue.default('0.00'),
+});
+
+/** Set or remove one person's own rate. Past sales keep what they earned; audited. */
+router.put('/commission/staff/:id/rates', staffWith('commission.manage'), idParam, validateBody(staffRateSchema), async (req, res) => {
+  const { target, targetId, commissionType: type, commissionValue: value } = req.body;
+  if (type === 'percent' && toPaisa(value) > 10000) throw fieldError('commissionValue', 'A percentage cannot be more than 100.');
+  const column = target === 'service' ? 'service_id' : 'category_id';
+  const table = target === 'service' ? 'services' : 'categories';
+
+  await transaction(async (conn) => {
+    const [users] = await conn.execute('SELECT name FROM users WHERE id = ?', [req.id]);
+    if (!users[0]) throw notFound('User not found.');
+    const [items] = await conn.execute(`SELECT name FROM ${table} WHERE id = ?`, [targetId]);
+    if (!items[0]) throw fieldError('targetId', 'Not found.');
+    const [current] = await conn.execute(`SELECT commission_type, commission_value FROM staff_commission_rates WHERE user_id = ? AND ${column} = ?`, [req.id, targetId]);
+    if (type) {
+      await conn.execute(
+        `INSERT INTO staff_commission_rates (user_id, ${column}, commission_type, commission_value, updated_by) VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE commission_type = VALUES(commission_type), commission_value = VALUES(commission_value), updated_by = VALUES(updated_by)`,
+        [req.id, targetId, type, value, req.user.id],
+      );
+    } else {
+      await conn.execute(`DELETE FROM staff_commission_rates WHERE user_id = ? AND ${column} = ?`, [req.id, targetId]);
+    }
+    await writeAudit({
+      conn,
+      actorUserId: req.user.id,
+      action: 'commission.staff_rate',
+      entityType: 'user',
+      entityId: req.id,
+      oldValues: current[0] ? { type: current[0].commission_type, value: current[0].commission_value } : null,
+      newValues: { staff: users[0].name, [target]: items[0].name, ...(type ? { type, value } : { removed: true }) },
+      ip: req.ip,
+    });
+  });
+  res.json({ own: type ? { type, value } : null });
 });
 
 const payoutSchema = z.strictObject({

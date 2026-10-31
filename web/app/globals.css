@@ -1518,3 +1518,19 @@ dialog.modal.modal-ask {
   color: var(--ink-900);
   letter-spacing: 0.16em;
 }
+
+/* ---- a staff member's own commission rates ---- */
+
+.rate-select,
+.rate-value {
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--ink-300);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-900);
+  font: 14px/1.2 var(--font);
+}
+.rate-value {
+  width: 76px;
+}

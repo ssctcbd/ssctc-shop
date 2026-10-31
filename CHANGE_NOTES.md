@@ -125,6 +125,13 @@ Obostha: **Baki** = ekhono kora hoy ni · **Hoyeche** = kora ar upload er jonno 
 - **Kivabe:** login page e Forgot password → username → 6 ongker code (10 minute, 5 try, ekbar-i). Staff er jonno kono mail jay na. Owner er email Password screen e boshe, password diye; save korle test mail jay.
 - **Mone rakhar moto:** migration `006`, `package.json` e notun package (`nodemailer`, Run NPM Install lagbe), cPanel e ekta mailbox, ar server er `.env` e `SMTP_*`.
 
+## 10. Ek ek staff er jonno alada commission rate
+
+- **Obostha:** Code hoyeche (2026-11-01); server e boshano baki
+- **Ki chai:** Shadharon rate er pashapashi kono staff er jonno alada rate deya jabe.
+- **Kivabe:** Commission screen e staff er pashe **Rates**. Alada rate shudhu jekhane dorkar; na dile shadharon rate-i cholbe. 0 dile oi item e oi staff kichu pabe na. Product e age tar category er rate, tarpor mul category er rate, tarpor shadharon rate.
+- **Mone rakhar moto:** rate bodlale purono bikrir commission bodlay na. Staff shudhu nijer rate dekhe (My commission). Migration `007` ar API + website dui zip-i upload korte hobe.
+
 ## Notun note jog korar niyom
 
 Protita note e: ki chai, ekhon ki ache, ar kaaj shuru korar age kono proshno baki thakle seta.

@@ -283,3 +283,66 @@ it('guessing recovery codes is locked out like guessing passwords', async () => 
   const locked = await visitor.post('/auth/recover', { username: 'owner', code: ids.codes[1], newPassword: 'guessing-pass-1' });
   assert.equal(locked.status, 429);
 });
+
+// --- a staff member's own rates ----------------------------------------------
+
+it("a staff member's own rate replaces the general one for them alone, and only from their next sale", async () => {
+  await db.query('UPDATE users SET commission_enabled = 1 WHERE id IN (?, ?)', [ids.rahim, ids.karim]);
+  const set = (userId, body) => owner.put(`/commission/staff/${userId}/rates`, body);
+  const sellCopies = async (client) => (await sell(client, { items: [{ type: 'service', serviceId: ids.copy, quantity: 10 }], payments: cash('20') })).body.sale;
+
+  // The general rate first: 0.50 a page for both.
+  assert.equal((await sellCopies(staff)).commission, '5.00');
+  assert.equal((await sellCopies(staff2)).commission, '5.00');
+
+  // Staff cannot set rates or see anyone else's.
+  assert.equal((await staff.put(`/commission/staff/${ids.rahim}/rates`, { target: 'service', targetId: ids.copy, commissionType: 'fixed', commissionValue: '5' })).status, 403);
+  assert.equal((await staff.get(`/commission/staff/${ids.karim}/rates`)).status, 403);
+  assert.equal((await set(ids.rahim, { target: 'service', targetId: ids.copy, commissionType: 'percent', commissionValue: '101' })).status, 400);
+  assert.equal((await set(ids.rahim, { target: 'service', targetId: 999999, commissionType: 'fixed', commissionValue: '1' })).status, 400);
+
+  // Rahim gets 0.75 a page; Karim stays on the general rate.
+  const res = await set(ids.rahim, { target: 'service', targetId: ids.copy, commissionType: 'fixed', commissionValue: '0.75' });
+  assert.deepEqual([res.status, res.body.own], [200, { type: 'fixed', value: '0.75' }]);
+  assert.equal((await sellCopies(staff)).commission, '7.50');
+  assert.equal((await sellCopies(staff2)).commission, '5.00');
+
+  // What was already earned does not change.
+  const earlier = await db.query("SELECT amount FROM staff_commission_entries WHERE user_id = ? AND entry_type = 'sale' ORDER BY id DESC LIMIT 2", [ids.rahim]);
+  assert.deepEqual(earlier.map((e) => e.amount), ['7.50', '5.00']);
+
+  // He sees his own rate on his own screen, with the general one beside it.
+  const mine = (await staff.get('/commission/me/rates')).body.services.find((s) => s.id === ids.copy);
+  assert.deepEqual([mine.general, mine.own, mine.applies], [{ type: 'fixed', value: '0.50' }, { type: 'fixed', value: '0.75' }, { type: 'fixed', value: '0.75' }]);
+  const theirs = (await staff2.get('/commission/me/rates')).body.services.find((s) => s.id === ids.copy);
+  assert.deepEqual([theirs.own, theirs.applies], [null, { type: 'fixed', value: '0.50' }]);
+
+  // Zero means nothing on this item; removing it brings the general rate back.
+  await set(ids.rahim, { target: 'service', targetId: ids.copy, commissionType: 'fixed', commissionValue: '0' });
+  assert.equal((await sellCopies(staff)).commission, '0.00');
+  assert.deepEqual((await set(ids.rahim, { target: 'service', targetId: ids.copy, commissionType: null })).body.own, null);
+  assert.equal((await sellCopies(staff)).commission, '5.00');
+
+  const log = (await db.query("SELECT new_values FROM audit_logs WHERE action = 'commission.staff_rate' ORDER BY id DESC LIMIT 1"))[0];
+  assert.deepEqual(log.new_values, { staff: 'Rahim', service: 'Photocopy A4', removed: true });
+});
+
+it("on products: their rate on the category, then on its parent, then the general rates", async () => {
+  const set = (body) => owner.put(`/commission/staff/${ids.rahim}/rates`, { target: 'category', ...body });
+  const pens = (client) => sell(client, { items: [{ type: 'product', productId: ids.pen, quantity: 10 }], payments: cash('100') });
+  const pensCategory = (await db.query('SELECT category_id FROM products WHERE id = ?', [ids.pen]))[0].category_id;
+
+  // General: 5% of 100 through the parent, Stationery.
+  assert.equal((await pens(staff)).body.sale.commission, '5.00');
+  // His rate on the parent reaches the sub-category.
+  await set({ targetId: ids.stationery, commissionType: 'percent', commissionValue: '10' });
+  assert.equal((await pens(staff)).body.sale.commission, '10.00');
+  assert.equal((await pens(staff2)).body.sale.commission, '5.00');
+  // His rate on the sub-category comes first.
+  await set({ targetId: pensCategory, commissionType: 'fixed', commissionValue: '2' });
+  assert.equal((await pens(staff)).body.sale.commission, '20.00');
+
+  const rates = (await owner.get(`/commission/staff/${ids.rahim}/rates`)).body;
+  const row = rates.categories.find((c) => c.id === pensCategory);
+  assert.deepEqual([row.parentName, row.general, row.own, row.applies], ['Stationery', { type: 'percent', value: '5.00' }, { type: 'fixed', value: '2.00' }, { type: 'fixed', value: '2.00' }]);
+});

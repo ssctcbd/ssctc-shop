@@ -12,20 +12,37 @@ const { toPaisa, fromPaisa } = require('./money');
  * back; a return takes back the share of the returned units.
  */
 
-/** { type, value } in force for a category row with its parent's columns joined in as parent_*. */
-const categoryRate = (row) =>
-  row.commission_type ? { type: row.commission_type, value: row.commission_value } : row.parent_commission_type ? { type: row.parent_commission_type, value: row.parent_commission_value } : null;
+/**
+ * The Owner can also give one staff member their own rate on a service or a
+ * category (staff_commission_rates). It comes before any general rate:
+ * their rate on the category, their rate on its parent, then the general rates.
+ */
+const rate = (type, value) => (type ? { type, value } : null);
 
-/** Rates for the categories of these products: Map(productId → rate | null). */
-async function productRates(conn, productIds) {
+/** { type, value } in force for a row with the four rates joined in, or null. */
+const categoryRate = (row) =>
+  rate(row.own_type, row.own_value) || rate(row.parent_own_type, row.parent_own_value) || rate(row.commission_type, row.commission_value) || rate(row.parent_commission_type, row.parent_commission_value);
+
+/** What `userId` earns on the categories of these products: Map(productId → rate | null). */
+async function productRates(conn, productIds, userId) {
   if (productIds.length === 0) return new Map();
   const [rows] = await conn.query(
-    `SELECT p.id, c.commission_type, c.commission_value, pc.commission_type AS parent_commission_type, pc.commission_value AS parent_commission_value
+    `SELECT p.id, c.commission_type, c.commission_value, pc.commission_type AS parent_commission_type, pc.commission_value AS parent_commission_value,
+            own.commission_type AS own_type, own.commission_value AS own_value, pown.commission_type AS parent_own_type, pown.commission_value AS parent_own_value
        FROM products p JOIN categories c ON c.id = p.category_id LEFT JOIN categories pc ON pc.id = c.parent_id
+       LEFT JOIN staff_commission_rates own ON own.user_id = ? AND own.category_id = c.id
+       LEFT JOIN staff_commission_rates pown ON pown.user_id = ? AND pown.category_id = pc.id
       WHERE p.id IN (?)`,
-    [productIds],
+    [userId, userId, productIds],
   );
   return new Map(rows.map((r) => [r.id, categoryRate(r)]));
+}
+
+/** This staff member's own rates on these services: Map(serviceId → rate). Services without one are absent. */
+async function ownServiceRates(conn, serviceIds, userId) {
+  if (serviceIds.length === 0) return new Map();
+  const [rows] = await conn.query('SELECT service_id, commission_type, commission_value FROM staff_commission_rates WHERE user_id = ? AND service_id IN (?)', [userId, serviceIds]);
+  return new Map(rows.map((r) => [r.service_id, rate(r.commission_type, r.commission_value)]));
 }
 
 /**
@@ -83,4 +100,4 @@ function returnedShare(linePaisa, soldQuantity, returnedBefore, quantity) {
   return upTo(returnedBefore + quantity) - upTo(returnedBefore);
 }
 
-module.exports = { productRates, lineCommission, addCommissionEntry, earnsCommission, commissionBalance, reverseSaleCommission, returnedShare };
+module.exports = { productRates, ownServiceRates, categoryRate, lineCommission, addCommissionEntry, earnsCommission, commissionBalance, reverseSaleCommission, returnedShare };

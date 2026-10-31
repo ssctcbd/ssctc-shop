@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { describeRate } from '@/components/CommissionRate';
 import { useDialogs } from '@/components/Dialogs';
 import Modal from '@/components/Modal';
 import Pager from '@/components/Pager';
@@ -174,11 +175,128 @@ function PayForm({ person, onDone, onClose }) {
   );
 }
 
+/** One line of the Owner's rate list: the general rate, and this person's own if they have one. */
+function RateRow({ userId, target, item, unit }) {
+  const [type, setType] = useState(item.own ? item.own.type : '');
+  const [value, setValue] = useState(item.own ? String(Number(item.own.value)) : '');
+  const [saved, setSaved] = useState(item.own);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const changed = type !== (saved ? saved.type : '') || (type && Number(value) !== Number(saved ? saved.value : NaN));
+
+  async function save() {
+    setError('');
+    setBusy(true);
+    try {
+      const res = await api.put(`/commission/staff/${userId}/rates`, { target, targetId: item.id, commissionType: type || null, commissionValue: type ? value || '0' : '0' });
+      setSaved(res.own);
+    } catch (err) {
+      setError(Object.values(err.fields || {})[0] || err.message);
+    }
+    setBusy(false);
+  }
+
+  return (
+    <tr>
+      <td>
+        {item.parentName ? `${item.parentName} › ${item.name}` : item.name}
+        {error && <p className="field-error">{error}</p>}
+      </td>
+      <td>{item.general ? describeRate(item.general.type, item.general.value, unit) : 'None'}</td>
+      <td className="nowrap">
+        <select className="rate-select" aria-label={`Rate type for ${item.name}`} value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="">Same as general</option>
+          <option value="percent">% of the sale</option>
+          <option value="fixed">৳ per {unit}</option>
+        </select>{' '}
+        {type && <input className="rate-value" inputMode="decimal" aria-label={`Rate for ${item.name}`} placeholder="0" value={value} onChange={(e) => setValue(e.target.value)} />}
+      </td>
+      <td className="num">
+        {changed && (
+          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={save}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** The Owner sets one person's own rates; only what differs from the general rate. */
+function StaffRates({ person, onClose }) {
+  const { data, error } = useFetch(`/commission/staff/${person.id}/rates`);
+
+  const table = (title, target, items, unitOf) => (
+    <>
+      <h3 className="section-title">{title}</h3>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>General rate</th>
+              <th>{person.name}&apos;s own rate</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <RateRow key={item.id} userId={person.id} target={target} item={item} unit={unitOf(item)} />
+            ))}
+          </tbody>
+        </table>
+        {items.length === 0 && <div className="empty">None yet.</div>}
+      </div>
+    </>
+  );
+
+  return (
+    <Modal title={`Rates for ${person.name}`} onClose={onClose} wide>
+      <Notice>{error?.message}</Notice>
+      <p className="muted">Set a rate only where this person should differ from everyone else. It applies from their next sale; what they already earned does not change. A rate of 0 means they earn nothing on that item. Other staff cannot see it.</p>
+      {data && table('Services', 'service', data.services, (s) => s.unit)}
+      {data && table('Product categories', 'category', data.categories, () => 'unit')}
+    </Modal>
+  );
+}
+
+/** A staff member's own screen: what they earn on each item. */
+function MyRates() {
+  const { data } = useFetch('/commission/me/rates');
+  if (!data) return null;
+  const rows = [...data.services.map((s) => ({ ...s, key: `s${s.id}` })), ...data.categories.map((c) => ({ ...c, unit: 'unit', key: `c${c.id}` }))].filter((r) => r.applies);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <h2 className="section-title">What you earn</h2>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Your rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <td>{r.parentName ? `${r.parentName} › ${r.name}` : r.name}</td>
+                <td>{describeRate(r.applies.type, r.applies.value, r.unit)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 /** The Owner: everyone's balance, what they earned, and paying them. */
 function AllStaff() {
   const { data, error, reload } = useFetch('/commission/staff');
   const [paying, setPaying] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [rates, setRates] = useState(null);
   const [message, setMessage] = useState('');
   const staff = data?.staff || [];
 
@@ -216,6 +334,9 @@ function AllStaff() {
                   <button className="btn btn-ghost btn-sm" onClick={() => setViewing(s)}>
                     Details
                   </button>{' '}
+                  <button className="btn btn-ghost btn-sm" onClick={() => setRates(s)}>
+                    Rates
+                  </button>{' '}
                   <button className="btn btn-primary btn-sm" disabled={Number(s.balance) <= 0} onClick={() => setPaying(s)}>
                     Pay
                   </button>
@@ -239,6 +360,7 @@ function AllStaff() {
           }}
         />
       )}
+      {rates && <StaffRates person={rates} onClose={() => setRates(null)} />}
       {viewing && (
         <Modal title={`Commission: ${viewing.name}`} onClose={() => setViewing(null)} wide>
           <Statement path={`/commission/staff/${viewing.id}`} canManage onChanged={reload} />
@@ -258,7 +380,14 @@ export default function CommissionPage() {
         <h1>{manage ? 'Commission' : 'My commission'}</h1>
         <p>{manage ? 'What each staff member has earned on their sales, and what has been paid.' : 'What you have earned on the sales you recorded, and what you have been paid.'}</p>
       </div>
-      {manage ? <AllStaff /> : <Statement path="/commission/me" />}
+      {manage ? (
+        <AllStaff />
+      ) : (
+        <>
+          <Statement path="/commission/me" />
+          <MyRates />
+        </>
+      )}
     </>
   );
 }

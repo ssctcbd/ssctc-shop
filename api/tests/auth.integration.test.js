@@ -47,7 +47,7 @@ it('migration creates every table in DATABASE_SCHEMA.md', async () => {
     'audit_logs', 'categories', 'commission_payouts', 'customer_advance_movements', 'customer_sessions', 'customers', 'daily_cash_closings', 'daily_cash_openings',
     'document_counters', 'expense_categories', 'expenses', 'inventory_movements', 'login_attempts', 'owner_cash_receipts', 'owner_password_otps', 'owner_recovery_codes',
     'payment_allocations', 'payments', 'products', 'purchase_items', 'purchases', 'role_permissions', 'roles', 'sale_items', 'sale_return_items',
-    'sale_returns', 'sales', 'services', 'sessions', 'settings', 'staff_commission_entries', 'supplier_payment_allocations', 'supplier_payments', 'suppliers', 'users',
+    'sale_returns', 'sales', 'services', 'sessions', 'settings', 'staff_commission_entries', 'staff_commission_rates', 'supplier_payment_allocations', 'supplier_payments', 'suppliers', 'users',
   ]);
 });
 

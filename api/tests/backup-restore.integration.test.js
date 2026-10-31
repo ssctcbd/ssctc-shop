@@ -239,7 +239,7 @@ it('the launch check passes the data checks and fails loudly on an unsafe config
   assert.equal(run.status, 1);
   assert.match(run.stdout, /FAIL  NODE_ENV is "production"/);
   assert.match(run.stdout, /FAIL  The site address uses HTTPS/);
-  assert.match(run.stdout, /PASS  All 6 migrations have been run/);
+  assert.match(run.stdout, /PASS  All 7 migrations have been run/);
   assert.match(run.stdout, /PASS  There is an active Owner account/);
   assert.match(run.stdout, /PASS  Stock equals its movement history/);
   assert.match(run.stdout, /PASS  Every customer's due equals their unpaid bills/);
