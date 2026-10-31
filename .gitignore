@@ -20,3 +20,7 @@ Thumbs.db
 
 # Upload packages built by scripts/package-release.ps1
 release/
+
+# cPanel API token for deploying; never commit it
+cpanel-token.txt
+cron-key.txt

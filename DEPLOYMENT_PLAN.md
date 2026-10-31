@@ -191,6 +191,17 @@ One-time setup:
    setting for one minute), then open Backup & health: "Copy in Google Drive"
    shows the time.
 
+Done on the live account (2026-10-31):
+
+- The server's clock is Asia/Dhaka (+06), so cron times are shop times.
+- `BACKUP_DIR` and `BACKUP_CRON_KEY` are in `/home/sscompu2/ssctc-shop-api/.env`
+  (mode 0600), not on the Node.js page; `src/config/env.js` reads that file and
+  the page's variables still win. The four `GDRIVE_*` lines go in the same file.
+- `/home/sscompu2/ssctc-shop-backups` (0700) holds the dumps and `cron.log`.
+- Cron: `50 23 * * *`, the curl line, appending to `cron.log`. A test run from
+  cron at 18:06 wrote a backup. Google Drive is not connected yet.
+- In a crontab `%` means a new line: never put a bare `%` in a cron command.
+
 ## 6. Backup and restore
 
 This system holds the shop's sales, dues and payment records. Losing it means
