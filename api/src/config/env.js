@@ -38,6 +38,12 @@ const schema = z.object({
   GDRIVE_CLIENT_SECRET: z.string().default(''),
   GDRIVE_REFRESH_TOKEN: z.string().default(''),
   GDRIVE_FOLDER_ID: z.string().default(''),
+  // The mailbox that sends the Owner's password codes.
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().default(465),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASSWORD: z.string().default(''),
+  SMTP_FROM: z.string().default(''),
 });
 
 const parsed = schema.safeParse(process.env);

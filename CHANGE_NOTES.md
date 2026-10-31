@@ -118,6 +118,13 @@ Obostha: **Baki** = ekhono kora hoy ni · **Hoyeche** = kora ar upload er jonno 
 - **Ki kora hoyeche:** Cash screen e Open (shokal) → Hand over (raat, staff-o parbe) → Owner er "Receive cash". Commission screen (Owner: shobar hishab ar Pay; Staff: My commission). Services/Categories e rate er ghor. Users e "Earns commission". Lab-khotir report ar dashboard e commission khoroch hishebe bad.
 - **Mone rakhar moto:** notun migration `005`, ar API + website dui zip-i abar upload korte hobe. Upload er por prothom kaaj: Cash screen theke drawer gune "Open the cash", noile kono bikri save hobe na.
 
+## 9. Owner er password email e OTP diye
+
+- **Obostha:** Code hoyeche (2026-10-31); server e boshano baki
+- **Ki chai:** Forgot password e Owner er email e code jabe (SMS na, tai khoroch nei). Recovery code-o thakbe.
+- **Kivabe:** login page e Forgot password → username → 6 ongker code (10 minute, 5 try, ekbar-i). Staff er jonno kono mail jay na. Owner er email Password screen e boshe, password diye; save korle test mail jay.
+- **Mone rakhar moto:** migration `006`, `package.json` e notun package (`nodemailer`, Run NPM Install lagbe), cPanel e ekta mailbox, ar server er `.env` e `SMTP_*`.
+
 ## Notun note jog korar niyom
 
 Protita note e: ki chai, ekhon ki ache, ar kaaj shuru korar age kono proshno baki thakle seta.

@@ -77,5 +77,5 @@ export function useForm(initial, submit) {
     }
   }
 
-  return { values, setValues, set, fields, error, busy, onSubmit };
+  return { values, setValues, set, fields, error, busy, setBusy, onSubmit };
 }

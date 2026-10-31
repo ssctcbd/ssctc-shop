@@ -33,9 +33,9 @@ async function main() {
     pass(!(Number(server.log_bin) === 1 && server.binlog_format === 'STATEMENT'), 'The server allows READ COMMITTED transactions', 'Its binary log format is STATEMENT, so the application falls back to REPEATABLE READ. It works, but ask the host whether binlog_format can be ROW or MIXED.', 'WARN');
 
     const files = fs.readdirSync(path.join(__dirname, '..', 'migrations')).filter((f) => f.endsWith('.sql')).sort();
-    const columns = await rows("SELECT table_name AS t, column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND (table_name, column_name) IN (('sales', 'returned_amount'), ('purchases', 'idempotency_key'), ('payments', 'kind'), ('daily_cash_closings', 'period_start'), ('daily_cash_closings', 'opening_id'))");
-    pass(columns.length === 5, `All ${files.length} migrations have been run`, `Only ${columns.length} of 5 marker columns exist. Run the missing migration files in number order.`);
-    if (columns.length !== 5) return; // the rest would only produce errors
+    const columns = await rows("SELECT table_name AS t, column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND (table_name, column_name) IN (('sales', 'returned_amount'), ('purchases', 'idempotency_key'), ('payments', 'kind'), ('daily_cash_closings', 'period_start'), ('daily_cash_closings', 'opening_id'), ('users', 'email'))");
+    pass(columns.length === 6, `All ${files.length} migrations have been run`, `Only ${columns.length} of 6 marker columns exist. Run the missing migration files in number order.`);
+    if (columns.length !== 6) return; // the rest would only produce errors
 
     const counters = await rows('SELECT doc_type FROM document_counters');
     pass(counters.length >= 7, 'Base data is loaded (document counters, cash drawer lock)', 'Run api/seeds/001_base_data.sql.');

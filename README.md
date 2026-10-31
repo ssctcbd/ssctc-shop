@@ -139,5 +139,5 @@ Without a reachable server those tests are skipped and only unit tests run.
 Not done yet. Follow [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md): the hosting checks in
 §2 come first. `web/out` is what gets uploaded for the site; `api/` (without
 `node_modules` and `.env`) is the Node.js application. The files in `api/migrations/`
-(in number order, 001 to 005) and `api/seeds/001_base_data.sql` can also be run
+(in number order, 001 to 006) and `api/seeds/001_base_data.sql` can also be run
 directly in phpMyAdmin.

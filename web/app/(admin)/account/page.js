@@ -72,6 +72,46 @@ function RecoveryCodes() {
   );
 }
 
+/** Owner only: where the Forgot password code is sent. Saving sends a test message. */
+function RecoveryEmail() {
+  const status = useFetch('/auth/recovery-email');
+  const s = status.data;
+  // Remounted once the saved address is known, so the box starts with it.
+  return s ? <RecoveryEmailForm key={s.email || ''} status={s} /> : <Notice>{status.error?.message}</Notice>;
+}
+
+function RecoveryEmailForm({ status }) {
+  const [result, setResult] = useState(null);
+  const form = useForm({ email: status.email || '', currentPassword: '' }, async (v) => {
+    const res = await api.post('/auth/recovery-email', { email: v.email.trim() || null, currentPassword: v.currentPassword });
+    setResult(res);
+    form.setValues((x) => ({ ...x, currentPassword: '' }));
+    form.setBusy(false);
+  });
+  const { values: v, fields: f, set } = form;
+
+  return (
+    <div className="card card-narrow" style={{ marginTop: 20 }}>
+      <h2>Password code by email</h2>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        If you forget your password, &quot;Forgot password?&quot; on the login page sends a six-digit code to this address. Use an email only you can open, with 2-step verification on: whoever opens it can reset this password.
+      </p>
+      {!status.mailReady && <Notice kind="warning">Email is not set up on the server yet, so no code can be sent. Your recovery codes still work.</Notice>}
+      {result?.test?.sent && <Notice kind="success">Saved. A test email has gone to {result.email}. Check that it arrived, and look in the spam folder too.</Notice>}
+      {result?.test && !result.test.sent && <Notice>Saved, but the test email could not be sent: {result.test.error}</Notice>}
+      {result && !result.email && <Notice kind="success">The address has been removed. Only recovery codes work now.</Notice>}
+      <form onSubmit={form.onSubmit} noValidate>
+        <Notice>{form.error !== 'Please check the highlighted fields.' && form.error}</Notice>
+        <Field label="Your email" type="email" autoComplete="email" value={v.email} error={f.email} onChange={set('email')} hint="Leave empty to remove it." />
+        <Field label="Your current password" type="password" autoComplete="current-password" required value={v.currentPassword} error={f.currentPassword} onChange={set('currentPassword')} />
+        <SubmitButton busy={form.busy} busyText="Saving…">
+          Save and send a test email
+        </SubmitButton>
+      </form>
+    </div>
+  );
+}
+
 export default function AccountPage() {
   const user = useStaff();
   const can = useCan();
@@ -148,6 +188,7 @@ export default function AccountPage() {
         </form>
         <p className="field-hint">Other devices where you are logged in will be logged out.</p>
       </div>
+      {can('users.manage') && !user.mustChangePassword && <RecoveryEmail />}
       {can('users.manage') && !user.mustChangePassword && <RecoveryCodes />}
     </>
   );

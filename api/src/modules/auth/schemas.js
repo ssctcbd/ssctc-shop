@@ -31,4 +31,18 @@ const recoverSchema = z.strictObject({
 
 const recoveryCodesSchema = z.strictObject({ currentPassword: z.string().min(1).max(200) });
 
-module.exports = { username, newPassword, loginSchema, changePasswordSchema, recoverSchema, recoveryCodesSchema };
+const otpRequestSchema = z.strictObject({ username: z.string().trim().toLowerCase().min(1).max(60) });
+
+const otpResetSchema = z.strictObject({
+  username: z.string().trim().toLowerCase().min(1).max(60),
+  // Six digits; a space typed in the middle is ignored.
+  code: z.string().trim().max(20).transform((v) => v.replace(/\s/g, '')),
+  newPassword,
+});
+
+const recoveryEmailSchema = z.strictObject({
+  currentPassword: z.string().min(1).max(200),
+  email: z.string().trim().toLowerCase().email('Enter a valid email address.').max(190).nullable(),
+});
+
+module.exports = { username, newPassword, loginSchema, changePasswordSchema, recoverSchema, recoveryCodesSchema, otpRequestSchema, otpResetSchema, recoveryEmailSchema };

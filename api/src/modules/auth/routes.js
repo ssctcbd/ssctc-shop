@@ -3,7 +3,7 @@ const { env } = require('../../config/env');
 const { validateBody } = require('../../middleware/validate');
 const { requireStaff, staffWith } = require('../../middleware/session');
 const { setSessionCookie, clearSessionCookie } = require('../../lib/cookies');
-const { loginSchema, changePasswordSchema, recoverSchema, recoveryCodesSchema } = require('./schemas');
+const { loginSchema, changePasswordSchema, recoverSchema, recoveryCodesSchema, otpRequestSchema, otpResetSchema, recoveryEmailSchema } = require('./schemas');
 const service = require('./service');
 
 const router = express.Router();
@@ -44,6 +44,27 @@ router.post('/recovery-codes', staffWith('users.manage'), validateBody(recoveryC
 // From the login page, with no session.
 router.post('/recover', validateBody(recoverSchema), async (req, res) => {
   await service.recoverWithCode({ ...req.body, ip: req.ip });
+  res.json({ ok: true });
+});
+
+// Where an Owner's password code goes. Saving sends a test message and reports what happened.
+router.get('/recovery-email', staffWith('users.manage'), async (req, res) => {
+  res.json(await service.recoveryEmailStatus(req.user.id));
+});
+
+router.post('/recovery-email', staffWith('users.manage'), validateBody(recoveryEmailSchema), async (req, res) => {
+  res.json(await service.setRecoveryEmail({ userId: req.user.id, ...req.body, ip: req.ip }));
+});
+
+// From the login page, with no session. The answer is the same whoever is asked
+// about, so it never reveals which usernames exist or are Owners.
+router.post('/forgot-password', validateBody(otpRequestSchema), async (req, res) => {
+  await service.requestPasswordOtp({ ...req.body, ip: req.ip });
+  res.json({ ok: true });
+});
+
+router.post('/reset-password', validateBody(otpResetSchema), async (req, res) => {
+  await service.resetPasswordWithOtp({ ...req.body, ip: req.ip });
   res.json({ ok: true });
 });
 
