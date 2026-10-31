@@ -205,6 +205,7 @@ Done on the live account (2026-10-31):
   the "SSCTC Shop backups" folder on 2026-10-31. The branding page needs
   `https://shop.sscomputertrainingcentre.com/privacy/` (`web/public/privacy/`).
 - In a crontab `%` means a new line: never put a bare `%` in a cron command.
+- Owner password codes (2026-11-01): mailbox `noreply@sscomputertrainingcentre.com`, `SMTP_*` in the same `.env`, migration 006 run by hand, `nodemailer` installed with Run NPM Install. Gmail delivers to the inbox. The username asked for is the login username, not the email address.
 
 ## 6. Backup and restore
 

@@ -120,7 +120,7 @@ Obostha: **Baki** = ekhono kora hoy ni · **Hoyeche** = kora ar upload er jonno 
 
 ## 9. Owner er password email e OTP diye
 
-- **Obostha:** Code hoyeche (2026-10-31); server e boshano baki
+- **Obostha:** Hoyeche, live e pariksha kora (2026-11-01)
 - **Ki chai:** Forgot password e Owner er email e code jabe (SMS na, tai khoroch nei). Recovery code-o thakbe.
 - **Kivabe:** login page e Forgot password → username → 6 ongker code (10 minute, 5 try, ekbar-i). Staff er jonno kono mail jay na. Owner er email Password screen e boshe, password diye; save korle test mail jay.
 - **Mone rakhar moto:** migration `006`, `package.json` e notun package (`nodemailer`, Run NPM Install lagbe), cPanel e ekta mailbox, ar server er `.env` e `SMTP_*`.
